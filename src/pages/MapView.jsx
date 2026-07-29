@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import MapWidget from "@/components/MapWidget";
-import SignalBars from "@/components/SignalBars";
+import SignalBars from "@/components/ui/SignalBars";
 import { useDevice } from "@/lib/DeviceContext";
 import { formatCoords } from "@/lib/geofence";
 
