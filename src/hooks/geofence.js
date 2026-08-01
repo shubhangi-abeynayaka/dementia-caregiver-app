@@ -1,10 +1,5 @@
 const KEY = "dementiaguard.geofence";
 
-function getStorage() {
-  if (typeof window === "undefined" || !window.localStorage) return null;
-  return window.localStorage;
-}
-
 export const DEFAULT_POLYGON = [
   { lat: 24.7130, lng: 46.6750 },
   { lat: 24.7130, lng: 46.6760 },
@@ -13,20 +8,15 @@ export const DEFAULT_POLYGON = [
 ];
 
 export function loadGeofence() {
-  const storage = getStorage();
-  if (!storage) return [];
-
   try {
-    return JSON.parse(storage.getItem(KEY)) || [];
+    return JSON.parse(localStorage.getItem(KEY)) || [];
   } catch {
     return [];
   }
 }
 
 export function saveGeofence(points) {
-  const storage = getStorage();
-  if (!storage) return;
-  storage.setItem(KEY, JSON.stringify(points));
+  localStorage.setItem(KEY, JSON.stringify(points));
 }
 
 export function formatCoords(lat, lng) {
