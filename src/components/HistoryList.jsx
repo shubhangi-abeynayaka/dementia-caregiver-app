@@ -11,7 +11,7 @@ const iconMap = {
 export default function HistoryList({ history = [], onClear }) {
   if (!history.length) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-5 text-center shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-5 text-center shadow-sm space-y-3">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-secondary">
           <Clock3 className="h-6 w-6 text-muted-foreground" />
         </div>
@@ -19,6 +19,10 @@ export default function HistoryList({ history = [], onClear }) {
         <p className="mt-1 text-sm text-muted-foreground">
           Alerts will appear here as soon as the receiver sends packets.
         </p>
+        <Button variant="ghost" onClick={onClear} className="rounded-xl text-destructive">
+          <Trash2 className="mr-2 h-4 w-4" />
+          Clear All History
+        </Button>
       </div>
     );
   }
