@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2, MapPinned } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,15 +6,33 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/lib/DeviceContext";
-import { DEFAULT_POLYGON } from "@/lib/geofence";
+import { DEFAULT_BOUNDARY } from "@/lib/geofence";
+
+const EXPANDED_PROPERTY = [
+  [6.9300, 79.8575],
+  [6.9315, 79.8650],
+  [6.9240, 79.8660],
+  [6.9225, 79.8580],
+];
+
+const toDraftPoints = (boundary) =>
+  boundary.map(([lat, lng]) => ({ lat, lng }));
 
 export default function Settings() {
-  const { demoMode, toggleDemoMode, geofencePoints, updateGeofence } =
-    useDevice();
+  const {
+    isDemoMode,
+    toggleDemoMode,
+    geofenceBoundary,
+    updateGeofence,
+  } = useDevice();
   const [points, setPoints] = useState(
-    geofencePoints.map((p) => ({ lat: p.lat ?? "", lng: p.lng ?? "" }))
+    toDraftPoints(geofenceBoundary)
   );
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setPoints(toDraftPoints(geofenceBoundary));
+  }, [geofenceBoundary]);
 
   const update = (i, field, value) => {
     const next = points.map((p, idx) =>
@@ -37,15 +55,16 @@ export default function Settings() {
   const save = () => {
     const cleaned = points
       .filter((p) => p.lat !== "" && p.lng !== "" && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lng)))
-      .map((p) => ({ lat: parseFloat(p.lat), lng: parseFloat(p.lng) }));
-    updateGeofence(cleaned);
-    setPoints(cleaned);
-    setSaved(true);
+      .map((p) => [parseFloat(p.lat), parseFloat(p.lng)]);
+    if (cleaned.length >= 3) {
+      updateGeofence(cleaned);
+      setSaved(true);
+    }
   };
 
-  const useDefault = () => {
-    setPoints(DEFAULT_POLYGON.map((p) => ({ lat: p.lat, lng: p.lng })));
-    updateGeofence(DEFAULT_POLYGON);
+  const applyPreset = (boundary) => {
+    setPoints(toDraftPoints(boundary));
+    updateGeofence(boundary);
     setSaved(true);
   };
 
@@ -69,7 +88,7 @@ export default function Settings() {
               Simulate packets without hardware
             </p>
           </div>
-          <Switch checked={demoMode} onCheckedChange={toggleDemoMode} />
+            <Switch checked={isDemoMode} onCheckedChange={toggleDemoMode} />
         </div>
       </div>
 
@@ -77,11 +96,29 @@ export default function Settings() {
       <div className="bg-card rounded-2xl p-4 shadow-sm border border-border space-y-3">
         <div className="flex items-center gap-2">
           <MapPinned className="w-5 h-5 text-[hsl(var(--accent))]" />
-          <p className="font-semibold">Safe zone geofence</p>
+          <p className="font-semibold">Geofence Safe Zone Settings</p>
         </div>
         <p className="text-sm text-muted-foreground">
           Enter the corner points of the patient's safe boundary (at least 3).
         </p>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="geofence-preset">Boundary preset</Label>
+          <select
+            id="geofence-preset"
+            defaultValue=""
+            onChange={(event) => {
+              if (event.target.value === "default") applyPreset(DEFAULT_BOUNDARY);
+              if (event.target.value === "expanded") applyPreset(EXPANDED_PROPERTY);
+              event.target.value = "";
+            }}
+            className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="" disabled>Select a preset</option>
+            <option value="default">Default Colombo Perimeter</option>
+            <option value="expanded">Expanded Property</option>
+          </select>
+        </div>
 
         <div className="space-y-2">
           {points.map((p, i) => (
@@ -128,13 +165,6 @@ export default function Settings() {
             {saved ? "Saved ✓" : "Save"}
           </Button>
         </div>
-        <Button
-          variant="ghost"
-          onClick={useDefault}
-          className="w-full text-sm text-muted-foreground"
-        >
-          Use demo boundary
-        </Button>
       </div>
 
       <div className="bg-card rounded-2xl p-4 shadow-sm border border-border">

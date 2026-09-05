@@ -25,8 +25,8 @@ export default function Dashboard() {
     alarmActive,
     acknowledge,
     demoMode,
+    geofenceBoundary,
     error,
-    geofencePoints,
   } = useDevice();
 
   const connected = connectionStatus === "connected";
@@ -163,7 +163,8 @@ export default function Dashboard() {
           <div className="bg-card rounded-2xl p-3 shadow-sm border border-border">
             <MapWidget
               packet={packet}
-              geofencePoints={geofencePoints}
+              status={packet?.status}
+              geofenceBoundary={geofenceBoundary}
               height={180}
               interactive={false}
             />

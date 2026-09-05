@@ -1,19 +1,19 @@
 import { createContext, useContext, useMemo, useState } from 'react'
-import { DEFAULT_POLYGON } from '@/lib/geofence'
+import { DEFAULT_BOUNDARY, DEFAULT_POLYGON } from '@/lib/geofence'
 
 const DeviceContext = createContext(null)
 
 export function DeviceProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
-  const [demoMode, setDemoMode] = useState(true)
+  const [isDemoMode, setIsDemoMode] = useState(true)
   const [packet, setPacket] = useState({
-    lat: 24.7135,
-    lng: 46.6755,
+    lat: 6.9270,
+    lng: 79.8612,
     status: 'SAFE',
     timestamp: Date.now(),
     rssi: -68,
   })
-  const [geofencePoints, setGeofencePoints] = useState(DEFAULT_POLYGON)
+  const [geofenceBoundary, setGeofenceBoundary] = useState(DEFAULT_BOUNDARY)
   const [history, setHistory] = useState([])
   const [alarmActive, setAlarmActive] = useState(false)
   const [error, setError] = useState(null)
@@ -28,11 +28,17 @@ export function DeviceProvider({ children }) {
   }
 
   const toggleDemoMode = () => {
-    setDemoMode((current) => !current)
+    setIsDemoMode((current) => !current)
   }
 
-  const updateGeofence = (points) => {
-    setGeofencePoints(points.length >= 3 ? points : DEFAULT_POLYGON)
+  const updateGeofence = (coordinates) => {
+    if (coordinates.length >= 3) {
+      setGeofenceBoundary(coordinates)
+    }
+  }
+
+  const handleHardwareBoundaryStream = (newCoordinatesArray) => {
+    updateGeofence(newCoordinatesArray)
   }
 
   const acknowledge = () => {
@@ -46,9 +52,11 @@ export function DeviceProvider({ children }) {
   const value = useMemo(
     () => ({
       connectionStatus,
-      demoMode,
+      isDemoMode,
+      demoMode: isDemoMode,
       packet,
-      geofencePoints,
+      geofenceBoundary,
+      geofencePoints: geofenceBoundary.map(([lat, lng]) => ({ lat, lng })),
       history,
       alarmActive,
       error,
@@ -56,10 +64,11 @@ export function DeviceProvider({ children }) {
       disconnect,
       toggleDemoMode,
       updateGeofence,
+      handleHardwareBoundaryStream,
       acknowledge,
       clearAllHistory,
     }),
-    [connectionStatus, demoMode, packet, geofencePoints, history, alarmActive, error]
+    [connectionStatus, isDemoMode, packet, geofenceBoundary, history, alarmActive, error]
   )
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>

@@ -7,7 +7,7 @@ import { useDevice } from "@/lib/DeviceContext";
 import { formatCoords } from "@/lib/geofence";
 
 export default function MapView() {
-  const { packet, geofencePoints, connectionStatus } = useDevice();
+  const { packet, connectionStatus, geofenceBoundary } = useDevice();
   const connected = connectionStatus === "connected";
 
   return (
@@ -29,7 +29,8 @@ export default function MapView() {
 
       <MapWidget
         packet={packet}
-        geofencePoints={geofencePoints}
+        status={packet?.status}
+        geofenceBoundary={geofenceBoundary}
         height={420}
         interactive={true}
       />
