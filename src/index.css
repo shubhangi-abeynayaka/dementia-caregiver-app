@@ -92,15 +92,16 @@
     100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
   }
   @keyframes alert-pin-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-    70% { box-shadow: 0 0 0 16px rgba(239, 68, 68, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+    70% { box-shadow: 0 0 0 16px rgba(220, 38, 38, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
   }
   .patient-pin {
     align-items: center;
     background: #ffffff;
     border-radius: 9999px;
     display: flex;
+ 
     height: 24px;
     justify-content: center;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2);

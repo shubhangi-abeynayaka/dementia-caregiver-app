@@ -9,7 +9,7 @@ const MAP = {
     Icon: ShieldCheck,
   },
   ALERT: {
-    color: "var(--alert)",
+    color: "0 72.2% 50.6%",
     label: "Outside Alert",
     sub: "Patient has left the safe zone",
     Icon: AlertTriangle,
@@ -23,7 +23,8 @@ const MAP = {
 };
 
 export default function StatusCard({ status }) {
-  const cfg = MAP[status] || MAP.SAFE;
+  const normalizedStatus = status === "Safe" ? "SAFE" : status;
+  const cfg = MAP[normalizedStatus] || MAP.SAFE;
   return (
     <motion.div
       key={status}
@@ -34,7 +35,7 @@ export default function StatusCard({ status }) {
       style={{ background: `hsl(${cfg.color})` }}
     >
       <motion.div
-        animate={status === "SAFE" ? {} : { scale: [1, 1.08, 1] }}
+        animate={normalizedStatus === "SAFE" ? {} : { scale: [1, 1.08, 1] }}
         transition={{ duration: 1, repeat: Infinity }}
         className="mx-auto w-20 h-20 rounded-full bg-white/30 flex items-center justify-center mb-3"
       >

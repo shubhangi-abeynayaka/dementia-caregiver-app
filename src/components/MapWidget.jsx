@@ -19,7 +19,7 @@ const safePatientIcon = L.divIcon({
 const alertPatientIcon = L.divIcon({
   html: `<div class="patient-pin patient-pin-alert" aria-label="Patient is outside the safe zone">
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="#EF4444" />
+      <circle cx="12" cy="12" r="8" fill="#DC2626" />
       <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
     </svg>
   </div>`,
@@ -28,30 +28,27 @@ const alertPatientIcon = L.divIcon({
   iconAnchor: [12, 12],
 });
 
-function Recenter({ position }) {
+function FitBounds({ boundaryPoints, position }) {
   const map = useMap();
   useEffect(() => {
-    if (position) map.setView(position, 16, { animate: true });
-  }, [position, map]);
+    if (position && boundaryPoints?.length) {
+      const bounds = L.latLngBounds([...boundaryPoints, position]);
+      map.fitBounds(bounds, { padding: [40, 40], animate: true });
+    }
+  }, [boundaryPoints, position, map]);
   return null;
 }
 
 export default function MapWidget({
-  packet,
-  status = "SAFE",
+  telemetry,
   geofenceBoundary,
   height = 260,
   interactive = true,
 }) {
   const device = useDevice();
-  const position =
-    packet && !isNaN(packet.lat) && !isNaN(packet.lng)
-      ? [packet.lat, packet.lng]
-      : null;
+  const position = telemetry?.coordinates || null;
   const center = position || [6.9270, 79.8612];
-  const isBreached = ["ALERT", "BREACHED", "SOS"].includes(
-    String(status).toUpperCase()
-  );
+  const isBreached = telemetry?.status === "ALERT";
   const boundaryPoints = geofenceBoundary || device.geofenceBoundary;
 
   return (
@@ -81,7 +78,7 @@ export default function MapWidget({
             icon={isBreached ? alertPatientIcon : safePatientIcon}
           />
         )}
-        <Recenter position={position} />
+        <FitBounds boundaryPoints={boundaryPoints} position={position} />
       </MapContainer>
     </div>
   );
