@@ -102,7 +102,7 @@
     border-radius: 9999px;
     display: flex;
  
-    height: 24px;
+      height: 24px;
     justify-content: center;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     width: 24px;
