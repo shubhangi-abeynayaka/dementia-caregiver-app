@@ -5,16 +5,11 @@ export function Switch({ checked = false, onCheckedChange, className = '', ...pr
 
   return (
     <label className={`inline-flex cursor-pointer items-center gap-3 ${className}`} htmlFor={id}>
-      <span 
-        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 ${
-          checked ? 'bg-blue-600' : 'bg-slate-300'
-        }`}
+      <span className="relative inline-flex h-7 w-12 items-center rounded-full bg-slate-300 transition-colors duration-200"
         aria-hidden="true"
       >
         <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
-            checked ? 'translate-x-6' : 'translate-x-1'
-          }`}
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-1'}`}
         />
       </span>
       <input
