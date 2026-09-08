@@ -4,7 +4,6 @@ import {
   Bluetooth,
   BluetoothConnected,
   MapPin,
-  Hand,
   Info,
   AlertCircle,
 } from "lucide-react";
@@ -14,23 +13,20 @@ import StatusCard from "@/components/ui/StatusCard";
 import SignalBars from "@/components/ui/SignalBars";
 import MapWidget from "@/components/MapWidget";
 import { formatCoords } from "@/lib/geofence";
-import { format } from "date-fns";
 
 export default function Dashboard() {
   const {
     connectionStatus,
-    packet,
+    telemetry,
     connect,
     disconnect,
-    alarmActive,
-    acknowledge,
     demoMode,
+    geofenceBoundary,
     error,
-    geofencePoints,
   } = useDevice();
 
   const connected = connectionStatus === "connected";
-  const connecting = connectionStatus === "connecting";
+  const connecting = ["connecting", "searching"].includes(connectionStatus);
 
   return (
     <div className="space-y-4">
@@ -50,6 +46,8 @@ export default function Dashboard() {
           />
           {connected
             ? `Connected${demoMode ? " · Demo" : ""}`
+            : connectionStatus === "searching"
+            ? "Searching for Hardware Receiver..."
             : connecting
             ? "Connecting…"
             : "Disconnected"}
@@ -82,7 +80,11 @@ export default function Dashboard() {
             className="w-full mt-5 h-12 text-base rounded-xl"
           >
             <BluetoothConnected className="w-5 h-5 mr-2" />
-            {connecting ? "Connecting…" : "Connect Device"}
+            {connectionStatus === "searching"
+              ? "Searching for Hardware Receiver..."
+              : connecting
+              ? "Connecting…"
+              : "Connect Device"}
           </Button>
           <Link
             to="/settings"
@@ -95,43 +97,46 @@ export default function Dashboard() {
       ) : (
         <>
           <AnimatePresence>
-            {alarmActive && (
+            {telemetry.status === "ALERT" ? (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="rounded-2xl p-4 text-white shadow-lg"
-                style={{
-                  background: `hsl(${
-                    packet?.status === "SOS" ? "var(--sos)" : "var(--alert)"
-                  })`,
-                }}
+                className="rounded-2xl bg-[#DC2626] p-4 text-white shadow-lg"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-bold text-lg">
-                      {packet?.status === "SOS"
-                        ? "SOS Emergency!"
-                        : "Patient outside safe zone!"}
+                      Patient outside safe zone!
                     </p>
                     <p className="text-white/90 text-sm">
-                      {formatCoords(packet?.lat, packet?.lng)}
+                      {formatCoords(...telemetry.coordinates)}
                     </p>
                   </div>
-                  <Button
-                    onClick={acknowledge}
-                    variant="secondary"
-                    className="bg-white/90 text-foreground hover:bg-white"
-                  >
-                    <Hand className="w-4 h-4 mr-1" />
-                    Acknowledge
-                  </Button>
                 </div>
               </motion.div>
-            )}
+            ) : telemetry.status === "Safe" ? (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl bg-emerald-600 p-4 text-white shadow-lg"
+              >
+                <p className="font-bold text-lg">Patient is inside the safe zone</p>
+                <p className="text-white/90 text-sm">Monitoring live location</p>
+              </motion.div>
+            ) : null}
           </AnimatePresence>
 
-          <StatusCard status={packet?.status || "SAFE"} />
+          {telemetry ? (
+            <StatusCard status={telemetry.status} />
+          ) : (
+            <div className="rounded-3xl border border-border bg-card p-6 text-center shadow-sm">
+              <h2 className="text-xl font-bold">Waiting for hardware telemetry</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Status and coordinates will appear when the receiver sends a GPS packet.
+              </p>
+            </div>
+          )}
 
           {/* live data */}
           <div className="bg-card rounded-2xl p-4 shadow-sm border border-border space-y-3">
@@ -140,30 +145,28 @@ export default function Dashboard() {
                 Last update
               </span>
               <span className="text-sm font-medium">
-                {packet
-                  ? format(new Date(packet.timestamp), "HH:mm:ss")
-                  : "—"}
+                Live packet
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Coordinates</span>
               <span className="text-sm font-medium">
-                {formatCoords(packet?.lat, packet?.lng)}
+                {formatCoords(...telemetry.coordinates)}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
                 Signal strength
               </span>
-              <SignalBars rssi={packet?.rssi} />
+              <SignalBars rssi={parseInt(telemetry.signalStrength, 10)} />
             </div>
           </div>
 
           {/* map preview */}
           <div className="bg-card rounded-2xl p-3 shadow-sm border border-border">
             <MapWidget
-              packet={packet}
-              geofencePoints={geofencePoints}
+              telemetry={telemetry}
+              geofenceBoundary={geofenceBoundary}
               height={180}
               interactive={false}
             />

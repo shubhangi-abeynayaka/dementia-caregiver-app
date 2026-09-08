@@ -2,33 +2,54 @@ import { useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useDevice } from "@/lib/DeviceContext";
 
-const patientIcon = L.divIcon({
-  html: '<div class="patient-pin"></div>',
+const safePatientIcon = L.divIcon({
+  html: `<div class="patient-pin patient-pin-safe" aria-label="Patient is safe">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" fill="#2563EB" />
+      <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
+    </svg>
+  </div>`,
   className: "",
-  iconSize: [18, 18],
-  iconAnchor: [9, 9],
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
 });
 
-function Recenter({ position }) {
+const alertPatientIcon = L.divIcon({
+  html: `<div class="patient-pin patient-pin-alert" aria-label="Patient is outside the safe zone">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" fill="#DC2626" />
+      <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
+    </svg>
+  </div>`,
+  className: "",
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
+
+function FitBounds({ boundaryPoints, position }) {
   const map = useMap();
   useEffect(() => {
-    if (position) map.setView(position, 16, { animate: true });
-  }, [position, map]);
+    if (position && boundaryPoints?.length) {
+      const bounds = L.latLngBounds([...boundaryPoints, position]);
+      map.fitBounds(bounds, { padding: [40, 40], animate: true });
+    }
+  }, [boundaryPoints, position, map]);
   return null;
 }
 
 export default function MapWidget({
-  packet,
-  geofencePoints,
+  telemetry,
+  geofenceBoundary,
   height = 260,
   interactive = true,
 }) {
-  const position =
-    packet && !isNaN(packet.lat) && !isNaN(packet.lng)
-      ? [packet.lat, packet.lng]
-      : null;
-  const center = position || [24.7135, 46.6755];
+  const device = useDevice();
+  const position = telemetry?.coordinates || null;
+  const center = position || [6.9270, 79.8612];
+  const isBreached = telemetry?.status === "ALERT";
+  const boundaryPoints = geofenceBoundary || device.geofenceBoundary;
 
   return (
     <div style={{ height, borderRadius: "1rem", overflow: "hidden" }}>
@@ -41,19 +62,23 @@ export default function MapWidget({
         attributionControl={false}
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {geofencePoints.length >= 3 && (
-          <Polygon
-            positions={geofencePoints.map((p) => [p.lat, p.lng])}
-            pathOptions={{
-              color: "#F4A261",
-              fillColor: "#F4A261",
-              fillOpacity: 0.15,
-              weight: 2,
-            }}
+        <Polygon
+          positions={boundaryPoints}
+          pathOptions={{
+            color: "#2563EB",
+            dashArray: "5, 5",
+            fillColor: "#3B82F6",
+            fillOpacity: 0.15,
+            weight: 2,
+          }}
+        />
+        {position && (
+          <Marker
+            position={position}
+            icon={isBreached ? alertPatientIcon : safePatientIcon}
           />
         )}
-        {position && <Marker position={position} icon={patientIcon} />}
-        <Recenter position={position} />
+        <FitBounds boundaryPoints={boundaryPoints} position={position} />
       </MapContainer>
     </div>
   );
