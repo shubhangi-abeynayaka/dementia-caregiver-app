@@ -1,56 +1,52 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  RotateCcw,
-} from "lucide-react";
+import { ArrowLeft, Plus, Trash2, MapPinned } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useDevice } from "@/lib/DeviceContext";
-import { DEFAULT_BOUNDARY } from "@/lib/geofence";
-
-const EXPANDED_PROPERTY = [
-  [6.9300, 79.8575],
-  [6.9315, 79.8650],
-  [6.9240, 79.8660],
-  [6.9225, 79.8580],
-];
-
-function ToggleButton({ checked, label, onClick }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={checked}
-      onClick={onClick}
-      className={`relative inline-flex h-7 w-12 cursor-pointer items-center rounded-full transition-colors duration-200 ${
-        checked ? "bg-blue-600" : "bg-slate-300"
-      }`}
-    >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
-  );
-}
+import { DEFAULT_POLYGON } from "@/lib/geofence";
 
 export default function Settings() {
-  const {
-    isDemoMode,
-    setIsDemoMode,
-    telemetry,
-    geofenceBoundary,
-    updateGeofence,
-    simulateSafeZoneBreach,
-    resetToSafe,
-  } = useDevice();
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [audibleAlarm, setAudibleAlarm] = useState(true);
+  const { demoMode, toggleDemoMode, geofencePoints, updateGeofence } =
+    useDevice();
+  const [points, setPoints] = useState(
+    geofencePoints.map((p) => ({ lat: p.lat ?? "", lng: p.lng ?? "" }))
+  );
+  const [saved, setSaved] = useState(false);
 
-  const applyPreset = (boundary) => {
-    updateGeofence(boundary);
+  const update = (i, field, value) => {
+    const next = points.map((p, idx) =>
+      idx === i ? { ...p, [field]: value } : p
+    );
+    setPoints(next);
+    setSaved(false);
+  };
+
+  const addPoint = () => {
+    setPoints([...points, { lat: "", lng: "" }]);
+    setSaved(false);
+  };
+
+  const removePoint = (i) => {
+    setPoints(points.filter((_, idx) => idx !== i));
+    setSaved(false);
+  };
+
+  const save = () => {
+    const cleaned = points
+      .filter((p) => p.lat !== "" && p.lng !== "" && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lng)))
+      .map((p) => ({ lat: parseFloat(p.lat), lng: parseFloat(p.lng) }));
+    updateGeofence(cleaned);
+    setPoints(cleaned);
+    setSaved(true);
+  };
+
+  const useDefault = () => {
+    setPoints(DEFAULT_POLYGON.map((p) => ({ lat: p.lat, lng: p.lng })));
+    updateGeofence(DEFAULT_POLYGON);
+    setSaved(true);
   };
 
   return (
@@ -64,172 +60,89 @@ export default function Settings() {
         <h1 className="text-xl font-bold">Settings</h1>
       </div>
 
-      <div className="bg-card rounded-2xl border border-border p-4 shadow-sm space-y-4">
-        <p className="font-semibold">Alert Preferences</p>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <p>Push Notifications</p>
-            <ToggleButton
-              label="Push Notifications"
-              checked={pushNotifications}
-              onClick={() => setPushNotifications(!pushNotifications)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p>Audible Emergency Alarm</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Play a sound on your device during breaches
-              </p>
-            </div>
-            <ToggleButton
-              label="Audible Emergency Alarm"
-              checked={audibleAlarm}
-              onClick={() => setAudibleAlarm(!audibleAlarm)}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-card rounded-2xl border border-border p-4 shadow-sm">
+      {/* Demo mode */}
+      <div className="bg-card rounded-2xl p-4 shadow-sm border border-border">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-semibold">Demo Mode</p>
             <p className="text-sm text-muted-foreground">
-              Test app alerts without physical device
+              Simulate packets without hardware
             </p>
           </div>
-          <ToggleButton
-            label="Demo Mode"
-            checked={isDemoMode}
-            onClick={() => setIsDemoMode(!isDemoMode)}
-          />
+          <Switch checked={demoMode} onCheckedChange={toggleDemoMode} />
         </div>
       </div>
 
-      {isDemoMode && (
-        <div className="rounded-2xl border border-blue-100 bg-card p-4 shadow-sm space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-semibold">Demo Testing Suite</p>
-            </div>
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                telemetry.status === "ALERT"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-emerald-100 text-emerald-700"
-              }`}
-            >
-              {telemetry.status === "ALERT" ? "ALERT" : "Safe"}
-            </span>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-semibold">Simulation Triggers</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                variant="destructive"
-                onClick={simulateSafeZoneBreach}
-                className="rounded-xl"
-              >
-                <AlertTriangle className="mr-2 h-4 w-4" />
-                Simulate Outside Breach
-              </Button>
-              <Button
-                onClick={resetToSafe}
-                className="rounded-xl bg-slate-900 text-white hover:bg-slate-800"
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset to Safe
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-sm font-semibold">Geofence Safe Zone Settings</p>
-            <div className="space-y-1.5">
-              <label htmlFor="geofence-preset" className="text-sm font-medium">Property Presets</label>
-              <select
-                id="geofence-preset"
-                defaultValue=""
-                onChange={(event) => {
-                  if (event.target.value === "default") applyPreset(DEFAULT_BOUNDARY);
-                  if (event.target.value === "expanded") applyPreset(EXPANDED_PROPERTY);
-                  event.target.value = "";
-                }}
-                className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="" disabled>Select a preset</option>
-                <option value="default">Home Yard</option>
-                <option value="expanded">Neighborhood Zone</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <div>
-                <p className="text-sm font-medium">Boundary Points</p>
-                <p className="text-xs text-muted-foreground">Adjust the active [lat, lng] anchors to test polygon shapes live.</p>
-              </div>
-              <div className="space-y-2">
-                {geofenceBoundary.map(([lat, lng], index) => (
-                  <div key={`boundary-point-${index}`} className="grid grid-cols-[auto_1fr_1fr] items-center gap-2">
-                    <span className="w-6 text-sm font-medium text-muted-foreground">{index + 1}</span>
-                    <input
-                      aria-label={`Boundary point ${index + 1} latitude`}
-                      type="number"
-                      step="0.0001"
-                      value={lat}
-                      onChange={(event) => {
-                        const nextLat = Number(event.target.value);
-                        if (Number.isFinite(nextLat)) {
-                          updateGeofence(geofenceBoundary.map((point, pointIndex) => (
-                            pointIndex === index ? [nextLat, point[1]] : point
-                          )));
-                        }
-                      }}
-                      className="h-9 min-w-0 rounded-lg border border-input bg-background px-2 text-sm"
-                    />
-                    <input
-                      aria-label={`Boundary point ${index + 1} longitude`}
-                      type="number"
-                      step="0.0001"
-                      value={lng}
-                      onChange={(event) => {
-                        const nextLng = Number(event.target.value);
-                        if (Number.isFinite(nextLng)) {
-                          updateGeofence(geofenceBoundary.map((point, pointIndex) => (
-                            pointIndex === index ? [point[0], nextLng] : point
-                          )));
-                        }
-                      }}
-                      className="h-9 min-w-0 rounded-lg border border-input bg-background px-2 text-sm"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* Geofence editor */}
+      <div className="bg-card rounded-2xl p-4 shadow-sm border border-border space-y-3">
+        <div className="flex items-center gap-2">
+          <MapPinned className="w-5 h-5 text-[hsl(var(--accent))]" />
+          <p className="font-semibold">Safe zone geofence</p>
         </div>
-      )}
+        <p className="text-sm text-muted-foreground">
+          Enter the corner points of the patient's safe boundary (at least 3).
+        </p>
 
-      {!isDemoMode && (
-        <div className="bg-card rounded-2xl border border-border p-4 shadow-sm space-y-4">
-          <p className="font-semibold">Hardware Device Status</p>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Boundary status</span>
-              <span className="text-right font-medium">Active (Mapped via Walk &amp; Pin)</span>
+        <div className="space-y-2">
+          {points.map((p, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-6 text-sm text-muted-foreground">{i + 1}.</span>
+              <Input
+                type="number"
+                step="any"
+                value={p.lat}
+                onChange={(e) => update(i, "lat", e.target.value)}
+                placeholder="Latitude"
+                className="rounded-xl"
+              />
+              <Input
+                type="number"
+                step="any"
+                value={p.lng}
+                onChange={(e) => update(i, "lng", e.target.value)}
+                placeholder="Longitude"
+                className="rounded-xl"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => removePoint(i)}
+                disabled={points.length <= 1}
+              >
+                <Trash2 className="w-4 h-4 text-muted-foreground" />
+              </Button>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Device status</span>
-              <span className="font-medium text-emerald-600">Device Connected</span>
-            </div>
-          </div>
+          ))}
         </div>
-      )}
+
+        <div className="flex gap-2 pt-1">
+          <Button
+            variant="outline"
+            onClick={addPoint}
+            className="rounded-xl flex-1"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add point
+          </Button>
+          <Button onClick={save} className="rounded-xl flex-1">
+            {saved ? "Saved ✓" : "Save"}
+          </Button>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={useDefault}
+          className="w-full text-sm text-muted-foreground"
+        >
+          Use demo boundary
+        </Button>
+      </div>
 
       <div className="bg-card rounded-2xl p-4 shadow-sm border border-border">
-        <p className="font-semibold">About OrbitCare</p>
-        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          OrbitCare pairs with your patient tracking device to deliver real-time
-          geofence monitoring, dynamic live mapping, and instant emergency alerts.
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          <span className="font-semibold text-foreground">About.</span> This
+          app pairs over Bluetooth with your ESP32 LoRa receiver. It shows the
+          patient's status, plays an alarm on alerts, and draws the safe zone on
+          the map — all offline.
         </p>
       </div>
     </div>

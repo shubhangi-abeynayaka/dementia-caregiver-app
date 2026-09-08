@@ -1,18 +1,3 @@
- feature/map-updates
-export const DEFAULT_BOUNDARY = [
-  [6.9285, 79.8590],
-  [6.9295, 79.8635],
-  [6.9255, 79.8640],
-  [6.9245, 79.8595],
-]
-
-// Keep the object shape available to older consumers while the map state uses Leaflet's coordinate shape.
-export const DEFAULT_POLYGON = DEFAULT_BOUNDARY.map(([lat, lng]) => ({ lat, lng }))
-
-export function formatCoords(lat, lng) {
-  if (lat == null || lng == null || Number.isNaN(lat) || Number.isNaN(lng)) {
-    return '—'
-
 const KEY = "dementiaguard.geofence";
 
 function getStorage() {
@@ -35,7 +20,6 @@ export function loadGeofence() {
     return JSON.parse(storage.getItem(KEY)) || [];
   } catch {
     return [];
- main
   }
 }
 

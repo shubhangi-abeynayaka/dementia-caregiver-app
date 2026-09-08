@@ -7,7 +7,7 @@ import { useDevice } from "@/lib/DeviceContext";
 import { formatCoords } from "@/lib/geofence";
 
 export default function MapView() {
-  const { telemetry, connectionStatus, geofenceBoundary } = useDevice();
+  const { packet, geofencePoints, connectionStatus } = useDevice();
   const connected = connectionStatus === "connected";
 
   return (
@@ -28,8 +28,8 @@ export default function MapView() {
       )}
 
       <MapWidget
-        telemetry={telemetry}
-        geofenceBoundary={geofenceBoundary}
+        packet={packet}
+        geofencePoints={geofencePoints}
         height={420}
         interactive={true}
       />
@@ -42,18 +42,18 @@ export default function MapView() {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Coordinates</span>
           <span className="text-sm font-medium">
-            {formatCoords(...telemetry.coordinates)}
+            {formatCoords(packet?.lat, packet?.lng)}
           </span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Status</span>
           <span className="text-sm font-medium capitalize">
-            {telemetry.status}
+            {packet?.status?.toLowerCase() || "—"}
           </span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Signal</span>
-          <SignalBars rssi={parseInt(telemetry.signalStrength, 10)} />
+          <SignalBars rssi={packet?.rssi} />
         </div>
         <p className="text-xs text-muted-foreground">
           The shaded area shows the safe geofence. The pin is the patient's
