@@ -35,11 +35,14 @@ export default function MapWidget({
   height = 260,
   interactive = true,
 }) {
-  const device = useDevice();
+  const { geofenceBoundary: deviceGeofenceBoundary, connectionStatus } = useDevice();
   const mapRef = useRef(null);
-  const position = telemetry?.coordinates || null;
+  const position = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
+    ? telemetry.coordinates
+    : null;
+  const center = position || [6.9270, 79.8612];
   const isBreached = telemetry?.status === "ALERT";
-  const boundaryPoints = geofenceBoundary || device.geofenceBoundary;
+  const boundaryPoints = geofenceBoundary || deviceGeofenceBoundary;
   const positionLatLng = position
     ? { lat: position[0], lng: position[1] }
     : null;
@@ -73,7 +76,7 @@ export default function MapWidget({
   return (
     <div style={{ height, borderRadius: "1rem", overflow: "hidden" }}>
       <GoogleMap
-        center={positionLatLng || { lat: 6.9270, lng: 79.8612 }}
+        center={positionLatLng || { lat: center[0], lng: center[1] }}
         zoom={16}
         mapContainerStyle={containerStyle}
         options={mapOptions(interactive)}

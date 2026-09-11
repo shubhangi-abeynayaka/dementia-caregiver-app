@@ -2,15 +2,16 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { DEFAULT_BOUNDARY } from '@/lib/geofence'
 
 const DeviceContext = createContext(null)
+const DEFAULT_TELEMETRY = {
+  coordinates: [6.9270, 79.8612],
+  status: 'Safe',
+  signalStrength: '-68 dBm',
+}
 
 export function DeviceProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const [isDemoMode, setIsDemoMode] = useState(true)
-  const [telemetry, setTelemetry] = useState({
-    coordinates: [6.9270, 79.8612],
-    status: 'Safe',
-    signalStrength: '-68 dBm',
-  })
+  const [telemetry, setTelemetry] = useState(DEFAULT_TELEMETRY)
   const [geofenceBoundary, setGeofenceBoundary] = useState(DEFAULT_BOUNDARY)
   const [historyLogs, setHistoryLogs] = useState(() => {
     try {
@@ -106,11 +107,7 @@ export function DeviceProvider({ children }) {
     setError(null)
 
     if (isDemoMode) {
-      setTelemetry({
-        coordinates: [6.9270, 79.8612],
-        status: 'Safe',
-        signalStrength: '-68 dBm',
-      })
+      setTelemetry(DEFAULT_TELEMETRY)
       setConnectionStatus('connected')
       return
     }
@@ -187,11 +184,17 @@ export function DeviceProvider({ children }) {
     setConnectionStatus('disconnected')
   }
 
+  useEffect(() => {
+    if (connectionStatus === 'disconnected') return
+
+    disconnect()
+    setConnectionStatus('disconnected')
+    setTelemetry(DEFAULT_TELEMETRY)
+  }, [isDemoMode])
+
   const toggleDemoMode = () => {
     if (!isDemoMode) {
       requestNotificationPermission()
-    } else if (connectionStatus === 'connected') {
-      disconnect()
     }
     setIsDemoMode((current) => !current)
   }
@@ -229,11 +232,7 @@ export function DeviceProvider({ children }) {
   }
 
   const resetToSafe = () => {
-    setTelemetry({
-      coordinates: [6.9270, 79.8612],
-      status: 'Safe',
-      signalStrength: '-68 dBm',
-    })
+    setTelemetry(DEFAULT_TELEMETRY)
   }
 
   const value = useMemo(
