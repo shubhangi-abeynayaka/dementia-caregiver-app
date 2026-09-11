@@ -8,6 +8,7 @@ import {
 import { useDevice } from "@/lib/DeviceContext";
 
 const containerStyle = { width: "100%", height: "100%" };
+const fallbackCenter = { lat: 6.9270, lng: 79.8612 };
 
 const mapOptions = (interactive) => ({
   clickableIcons: false,
@@ -29,6 +30,13 @@ const patientIcon = (isBreached) => ({
   anchor: new window.google.maps.Point(12, 12),
 });
 
+function toLatLng(point) {
+  if (!Array.isArray(point) || point.length < 2) return null;
+  const lat = Number(point[0]);
+  const lng = Number(point[1]);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
 export default function MapWidget({
   telemetry,
   geofenceBoundary,
@@ -37,27 +45,25 @@ export default function MapWidget({
 }) {
   const { geofenceBoundary: deviceGeofenceBoundary, connectionStatus } = useDevice();
   const mapRef = useRef(null);
-  const position = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
+  const rawPosition = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
     ? telemetry.coordinates
     : null;
-  const center = position || [6.9270, 79.8612];
+  const position = toLatLng(rawPosition);
+  const boundaryPoints = (geofenceBoundary || deviceGeofenceBoundary || [])
+    .map(toLatLng)
+    .filter(Boolean);
   const isBreached = telemetry?.status === "ALERT";
-  const boundaryPoints = geofenceBoundary || deviceGeofenceBoundary;
-  const positionLatLng = position
-    ? { lat: position[0], lng: position[1] }
-    : null;
-  const boundaryLatLngs = boundaryPoints.map(([lat, lng]) => ({ lat, lng }));
   const { isLoaded, loadError } = useJsApiLoader({
-    id: "orbitcare-google-maps",
+    id: "dementia-caregiver-google-maps",
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
   });
 
   const fitMapBounds = (map) => {
-    if (!map || !positionLatLng || !boundaryLatLngs.length) return;
+    if (!map || !window.google || !position || boundaryPoints.length < 3) return;
 
     const bounds = new window.google.maps.LatLngBounds();
-    boundaryLatLngs.forEach((point) => bounds.extend(point));
-    bounds.extend(positionLatLng);
+    boundaryPoints.forEach((point) => bounds.extend(point));
+    bounds.extend(position);
     map.fitBounds(bounds, 40);
   };
 
@@ -66,17 +72,20 @@ export default function MapWidget({
   }, [boundaryPoints, position]);
 
   if (loadError) {
-    return <div style={{ height, borderRadius: "1rem" }}>Unable to load Google Maps.</div>;
+    return <div className="map-widget-container" style={{ "--map-height": `${height}px` }}>Unable to load Google Maps.</div>;
   }
 
   if (!isLoaded) {
-    return <div style={{ height, borderRadius: "1rem" }}>Loading Google Maps...</div>;
+    return <div className="map-widget-container" style={{ "--map-height": `${height}px` }}>Loading Google Maps...</div>;
   }
 
   return (
-    <div style={{ height, borderRadius: "1rem", overflow: "hidden" }}>
+    <div
+      className="map-widget-container"
+      style={{ "--map-height": `${height}px` }}
+    >
       <GoogleMap
-        center={positionLatLng || { lat: center[0], lng: center[1] }}
+        center={position || fallbackCenter}
         zoom={16}
         mapContainerStyle={containerStyle}
         options={mapOptions(interactive)}
@@ -88,20 +97,22 @@ export default function MapWidget({
           mapRef.current = null;
         }}
       >
-        <Polygon
-          paths={boundaryLatLngs}
-          options={{
-            strokeColor: "#2563EB",
-            strokeOpacity: 1,
-            strokeWeight: 2,
-            fillColor: "#3B82F6",
-            fillOpacity: 0.15,
-            clickable: false,
-          }}
-        />
-        {positionLatLng && (
+        {boundaryPoints.length >= 3 && (
+          <Polygon
+            paths={boundaryPoints}
+            options={{
+              strokeColor: "#2563EB",
+              strokeOpacity: 1,
+              strokeWeight: 2,
+              fillColor: "#3B82F6",
+              fillOpacity: 0.15,
+              clickable: false,
+            }}
+          />
+        )}
+        {position && (
           <Marker
-            position={positionLatLng}
+            position={position}
             icon={patientIcon(isBreached)}
             title={isBreached ? "Patient is outside the safe zone" : "Patient is safe"}
           />

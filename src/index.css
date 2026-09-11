@@ -117,4 +117,10 @@
   .patient-pin-alert {
     animation: alert-pin-pulse 0.9s infinite;
   }
+  .map-widget-container {
+    height: min(var(--map-height), 60vh);
+    min-height: 260px;
+    border-radius: 1rem;
+    overflow: hidden;
+  }
 }
