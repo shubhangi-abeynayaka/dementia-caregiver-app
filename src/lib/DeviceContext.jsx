@@ -23,7 +23,13 @@ export function DeviceProvider({ children }) {
   const [error, setError] = useState(null)
   const previousStatus = useRef(telemetry.status)
   const previousConnectionStatus = useRef(connectionStatus)
-  const hardwarePort = useRef(null)
+  const bluetoothDevice = useRef(null)
+  const telemetryCharacteristic = useRef(null)
+  const telemetryHandler = useRef(null)
+  const bluetoothDisconnectHandler = useRef(null)
+
+  const TELEMETRY_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+  const TELEMETRY_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
 
   const requestNotificationPermission = () => {
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
@@ -110,16 +116,49 @@ export function DeviceProvider({ children }) {
     }
 
     setConnectionStatus('searching')
-    if (typeof navigator === 'undefined' || !navigator.serial) {
+    if (typeof navigator === 'undefined' || !navigator.bluetooth) {
       setConnectionStatus('disconnected')
       setError('Hardware Disconnected / Receiver Not Found')
       return
     }
 
     try {
-      const port = await navigator.serial.requestPort()
-      await port.open({ baudRate: 115200 })
-      hardwarePort.current = port
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [TELEMETRY_SERVICE_UUID],
+      })
+      const server = await device.gatt.connect()
+      const service = await server.getPrimaryService(TELEMETRY_SERVICE_UUID)
+      const characteristic = await service.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID)
+      const handleTelemetry = (event) => {
+        const payload = new TextDecoder().decode(event.target.value)
+
+        try {
+          const parsed = JSON.parse(payload)
+          const lat = Number(parsed.lat)
+          const lng = Number(parsed.lng)
+          const rssi = Number(parsed.rssi)
+
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(rssi)) return
+
+          receiveTelemetry({
+            coordinates: [lat, lng],
+            status: parsed.status === 'ALERT' ? 'ALERT' : 'Safe',
+            signalStrength: `${rssi} dBm`,
+          })
+        } catch {
+          // Ignore incomplete or malformed BLE packets.
+        }
+      }
+
+      const handleDisconnect = () => disconnect()
+      device.addEventListener('gattserverdisconnected', handleDisconnect)
+      characteristic.addEventListener('characteristicvaluechanged', handleTelemetry)
+      await characteristic.startNotifications()
+      bluetoothDevice.current = device
+      telemetryCharacteristic.current = characteristic
+      telemetryHandler.current = handleTelemetry
+      bluetoothDisconnectHandler.current = handleDisconnect
       setConnectionStatus('connected')
     } catch {
       setConnectionStatus('disconnected')
@@ -127,9 +166,24 @@ export function DeviceProvider({ children }) {
     }
   }
 
-  const disconnect = () => {
-    hardwarePort.current?.close().catch(() => {})
-    hardwarePort.current = null
+  const disconnect = async () => {
+    const device = bluetoothDevice.current
+    const characteristic = telemetryCharacteristic.current
+
+    if (characteristic && telemetryHandler.current) {
+      characteristic.removeEventListener('characteristicvaluechanged', telemetryHandler.current)
+      await characteristic.stopNotifications().catch(() => {})
+    }
+    if (device) {
+      if (bluetoothDisconnectHandler.current) {
+        device.removeEventListener('gattserverdisconnected', bluetoothDisconnectHandler.current)
+      }
+      if (device.gatt.connected) device.gatt.disconnect()
+    }
+    telemetryCharacteristic.current = null
+    telemetryHandler.current = null
+    bluetoothDisconnectHandler.current = null
+    bluetoothDevice.current = null
     setConnectionStatus('disconnected')
   }
 
