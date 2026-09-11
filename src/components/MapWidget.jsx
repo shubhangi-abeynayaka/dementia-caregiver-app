@@ -45,11 +45,13 @@ export default function MapWidget({
   height = 260,
   interactive = true,
 }) {
-  const device = useDevice();
-  const position = telemetry?.coordinates || null;
+  const { geofenceBoundary: deviceGeofenceBoundary, connectionStatus } = useDevice();
+  const position = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
+    ? telemetry.coordinates
+    : null;
   const center = position || [6.9270, 79.8612];
   const isBreached = telemetry?.status === "ALERT";
-  const boundaryPoints = geofenceBoundary || device.geofenceBoundary;
+  const boundaryPoints = geofenceBoundary || deviceGeofenceBoundary;
 
   return (
     <div style={{ height, borderRadius: "1rem", overflow: "hidden" }}>
