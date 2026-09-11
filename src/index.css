@@ -117,5 +117,4 @@
   .patient-pin-alert {
     animation: alert-pin-pulse 0.9s infinite;
   }
-  .leaflet-container { font-family: inherit; }
 }

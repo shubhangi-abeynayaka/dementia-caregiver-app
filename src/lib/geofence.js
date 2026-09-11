@@ -5,7 +5,7 @@ export const DEFAULT_BOUNDARY = [
   [6.9245, 79.8595],
 ]
 
-// Keep the object shape available to older consumers while the map state uses Leaflet's coordinate shape.
+// Keep the object shape available to older consumers while map state uses [lat, lng] pairs.
 export const DEFAULT_POLYGON = DEFAULT_BOUNDARY.map(([lat, lng]) => ({ lat, lng }))
 
 export function formatCoords(lat, lng) {

@@ -1,43 +1,33 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Polygon, useMap } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useRef } from "react";
+import {
+  GoogleMap,
+  Marker,
+  Polygon,
+  useJsApiLoader,
+} from "@react-google-maps/api";
 import { useDevice } from "@/lib/DeviceContext";
 
-const safePatientIcon = L.divIcon({
-  html: `<div class="patient-pin patient-pin-safe" aria-label="Patient is safe">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="#2563EB" />
-      <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
-    </svg>
-  </div>`,
-  className: "",
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
+const containerStyle = { width: "100%", height: "100%" };
+
+const mapOptions = (interactive) => ({
+  clickableIcons: false,
+  fullscreenControl: false,
+  mapTypeControl: false,
+  streetViewControl: false,
+  zoomControl: interactive,
+  gestureHandling: interactive ? "auto" : "none",
 });
 
-const alertPatientIcon = L.divIcon({
-  html: `<div class="patient-pin patient-pin-alert" aria-label="Patient is outside the safe zone">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="#DC2626" />
+const patientIcon = (isBreached) => ({
+  url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8" fill="${isBreached ? "#DC2626" : "#2563EB"}" />
       <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
     </svg>
-  </div>`,
-  className: "",
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
+  `)}`,
+  scaledSize: new window.google.maps.Size(24, 24),
+  anchor: new window.google.maps.Point(12, 12),
 });
-
-function FitBounds({ boundaryPoints, position }) {
-  const map = useMap();
-  useEffect(() => {
-    if (position && boundaryPoints?.length) {
-      const bounds = L.latLngBounds([...boundaryPoints, position]);
-      map.fitBounds(bounds, { padding: [40, 40], animate: true });
-    }
-  }, [boundaryPoints, position, map]);
-  return null;
-}
 
 export default function MapWidget({
   telemetry,
@@ -46,40 +36,74 @@ export default function MapWidget({
   interactive = true,
 }) {
   const device = useDevice();
+  const mapRef = useRef(null);
   const position = telemetry?.coordinates || null;
-  const center = position || [6.9270, 79.8612];
   const isBreached = telemetry?.status === "ALERT";
   const boundaryPoints = geofenceBoundary || device.geofenceBoundary;
+  const positionLatLng = position
+    ? { lat: position[0], lng: position[1] }
+    : null;
+  const boundaryLatLngs = boundaryPoints.map(([lat, lng]) => ({ lat, lng }));
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: "orbitcare-google-maps",
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
+  });
+
+  const fitMapBounds = (map) => {
+    if (!map || !positionLatLng || !boundaryLatLngs.length) return;
+
+    const bounds = new window.google.maps.LatLngBounds();
+    boundaryLatLngs.forEach((point) => bounds.extend(point));
+    bounds.extend(positionLatLng);
+    map.fitBounds(bounds, 40);
+  };
+
+  useEffect(() => {
+    fitMapBounds(mapRef.current);
+  }, [boundaryPoints, position]);
+
+  if (loadError) {
+    return <div style={{ height, borderRadius: "1rem" }}>Unable to load Google Maps.</div>;
+  }
+
+  if (!isLoaded) {
+    return <div style={{ height, borderRadius: "1rem" }}>Loading Google Maps...</div>;
+  }
 
   return (
     <div style={{ height, borderRadius: "1rem", overflow: "hidden" }}>
-      <MapContainer
-        center={center}
+      <GoogleMap
+        center={positionLatLng || { lat: 6.9270, lng: 79.8612 }}
         zoom={16}
-        style={{ height: "100%", width: "100%" }}
-        scrollWheelZoom={interactive}
-        zoomControl={interactive}
-        attributionControl={false}
+        mapContainerStyle={containerStyle}
+        options={mapOptions(interactive)}
+        onLoad={(map) => {
+          mapRef.current = map;
+          fitMapBounds(map);
+        }}
+        onUnmount={() => {
+          mapRef.current = null;
+        }}
       >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <Polygon
-          positions={boundaryPoints}
-          pathOptions={{
-            color: "#2563EB",
-            dashArray: "5, 5",
+          paths={boundaryLatLngs}
+          options={{
+            strokeColor: "#2563EB",
+            strokeOpacity: 1,
+            strokeWeight: 2,
             fillColor: "#3B82F6",
             fillOpacity: 0.15,
-            weight: 2,
+            clickable: false,
           }}
         />
-        {position && (
+        {positionLatLng && (
           <Marker
-            position={position}
-            icon={isBreached ? alertPatientIcon : safePatientIcon}
+            position={positionLatLng}
+            icon={patientIcon(isBreached)}
+            title={isBreached ? "Patient is outside the safe zone" : "Patient is safe"}
           />
         )}
-        <FitBounds boundaryPoints={boundaryPoints} position={position} />
-      </MapContainer>
+      </GoogleMap>
     </div>
   );
 }
