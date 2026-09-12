@@ -8,9 +8,42 @@ const DEFAULT_TELEMETRY = {
   signalStrength: '-68 dBm',
 }
 
+function createEmergencySiren() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!AudioContext) return () => {}
+
+  const audioContext = new AudioContext()
+  const oscillator = audioContext.createOscillator()
+  const gain = audioContext.createGain()
+  let highTone = true
+
+  oscillator.type = 'sine'
+  oscillator.frequency.value = 880
+  gain.gain.value = 0.18
+  oscillator.connect(gain)
+  gain.connect(audioContext.destination)
+  oscillator.start()
+
+  const intervalId = window.setInterval(() => {
+    highTone = !highTone
+    oscillator.frequency.setValueAtTime(highTone ? 880 : 440, audioContext.currentTime)
+  }, 450)
+
+  audioContext.resume().catch(() => {})
+
+  return () => {
+    window.clearInterval(intervalId)
+    oscillator.stop()
+    oscillator.disconnect()
+    gain.disconnect()
+    audioContext.close().catch(() => {})
+  }
+}
+
 export function DeviceProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const [isDemoMode, setIsDemoMode] = useState(true)
+  const [audibleAlarm, setAudibleAlarm] = useState(true)
   const [telemetry, setTelemetry] = useState(DEFAULT_TELEMETRY)
   const [geofenceBoundary, setGeofenceBoundary] = useState(DEFAULT_BOUNDARY)
   const [historyLogs, setHistoryLogs] = useState(() => {
@@ -71,6 +104,13 @@ export function DeviceProvider({ children }) {
     ])
     previousStatus.current = telemetry.status
   }, [telemetry.status])
+
+  useEffect(() => {
+    const isEmergency = telemetry.status === 'ALERT' || telemetry.status === 'SOS'
+    if (!isEmergency || !audibleAlarm || typeof window === 'undefined') return undefined
+
+    return createEmergencySiren()
+  }, [telemetry.status, audibleAlarm])
 
   useEffect(() => {
     if (previousConnectionStatus.current === connectionStatus) return
@@ -240,6 +280,8 @@ export function DeviceProvider({ children }) {
       connectionStatus,
       isDemoMode,
       setIsDemoMode,
+      audibleAlarm,
+      setAudibleAlarm,
       demoMode: isDemoMode,
       telemetry,
       geofenceBoundary,
@@ -257,7 +299,7 @@ export function DeviceProvider({ children }) {
       simulateSafeZoneBreach,
       resetToSafe,
     }),
-    [connectionStatus, isDemoMode, telemetry, geofenceBoundary, historyLogs, error]
+    [connectionStatus, isDemoMode, audibleAlarm, telemetry, geofenceBoundary, historyLogs, error]
   )
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>

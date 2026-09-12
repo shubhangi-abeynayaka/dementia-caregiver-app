@@ -40,6 +40,8 @@ export default function Settings() {
   const {
     isDemoMode,
     setIsDemoMode,
+    audibleAlarm,
+    setAudibleAlarm,
     telemetry,
     geofenceBoundary,
     updateGeofence,
@@ -47,7 +49,6 @@ export default function Settings() {
     resetToSafe,
   } = useDevice();
   const [pushNotifications, setPushNotifications] = useState(true);
-  const [audibleAlarm, setAudibleAlarm] = useState(true);
 
   const applyPreset = (boundary) => {
     updateGeofence(boundary);
