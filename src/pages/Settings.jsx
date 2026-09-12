@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -40,6 +39,8 @@ export default function Settings() {
   const {
     isDemoMode,
     setIsDemoMode,
+    pushNotifications,
+    setPushNotifications,
     audibleAlarm,
     setAudibleAlarm,
     telemetry,
@@ -48,7 +49,6 @@ export default function Settings() {
     simulateSafeZoneBreach,
     resetToSafe,
   } = useDevice();
-  const [pushNotifications, setPushNotifications] = useState(true);
 
   const applyPreset = (boundary) => {
     updateGeofence(boundary);

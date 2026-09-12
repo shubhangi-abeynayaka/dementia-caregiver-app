@@ -43,6 +43,7 @@ function createEmergencySiren() {
 export function DeviceProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const [isDemoMode, setIsDemoMode] = useState(true)
+  const [pushNotifications, setPushNotifications] = useState(true)
   const [audibleAlarm, setAudibleAlarm] = useState(true)
   const [telemetry, setTelemetry] = useState(DEFAULT_TELEMETRY)
   const [geofenceBoundary, setGeofenceBoundary] = useState(DEFAULT_BOUNDARY)
@@ -75,7 +76,7 @@ export function DeviceProvider({ children }) {
     if (previousStatus.current === telemetry.status) return
 
     const [lat, lng] = telemetry.coordinates
-    if (telemetry.status === 'ALERT' && typeof Notification !== 'undefined') {
+    if (pushNotifications && telemetry.status === 'ALERT' && typeof Notification !== 'undefined') {
       const notify = () => new Notification('EMERGENCY: Safe Zone Breached!', {
         body: 'Patient has left the safe geofence boundary.',
       })
@@ -103,7 +104,7 @@ export function DeviceProvider({ children }) {
       ...currentHistory,
     ])
     previousStatus.current = telemetry.status
-  }, [telemetry.status])
+  }, [telemetry.status, pushNotifications])
 
   useEffect(() => {
     const isEmergency = telemetry.status === 'ALERT' || telemetry.status === 'SOS'
@@ -280,6 +281,8 @@ export function DeviceProvider({ children }) {
       connectionStatus,
       isDemoMode,
       setIsDemoMode,
+      pushNotifications,
+      setPushNotifications,
       audibleAlarm,
       setAudibleAlarm,
       demoMode: isDemoMode,
@@ -299,7 +302,7 @@ export function DeviceProvider({ children }) {
       simulateSafeZoneBreach,
       resetToSafe,
     }),
-    [connectionStatus, isDemoMode, audibleAlarm, telemetry, geofenceBoundary, historyLogs, error]
+    [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, telemetry, geofenceBoundary, historyLogs, error]
   )
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>
