@@ -272,6 +272,14 @@ export function DeviceProvider({ children }) {
     })
   }
 
+  const simulateSOS = () => {
+    setTelemetry({
+      coordinates: [6.9500, 79.9000],
+      status: 'SOS',
+      signalStrength: '-88 dBm',
+    })
+  }
+
   const resetToSafe = () => {
     setTelemetry(DEFAULT_TELEMETRY)
   }
@@ -300,6 +308,7 @@ export function DeviceProvider({ children }) {
       deleteHistoryLog,
       receiveTelemetry,
       simulateSafeZoneBreach,
+      simulateSOS,
       resetToSafe,
     }),
     [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, telemetry, geofenceBoundary, historyLogs, error]
