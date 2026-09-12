@@ -8,6 +8,16 @@ const DEFAULT_TELEMETRY = {
   signalStrength: '-68 dBm',
 }
 
+function isValidBoundary(boundary) {
+  return Array.isArray(boundary)
+    && boundary.length >= 3
+    && boundary.every((point) => (
+      Array.isArray(point)
+      && point.length === 2
+      && point.every((coordinate) => Number.isFinite(coordinate))
+    ))
+}
+
 function createEmergencySiren() {
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return () => {}
@@ -46,7 +56,15 @@ export function DeviceProvider({ children }) {
   const [pushNotifications, setPushNotifications] = useState(true)
   const [audibleAlarm, setAudibleAlarm] = useState(true)
   const [telemetry, setTelemetry] = useState(DEFAULT_TELEMETRY)
-  const [geofenceBoundary, setGeofenceBoundary] = useState(DEFAULT_BOUNDARY)
+  const [geofenceBoundary, setGeofenceBoundary] = useState(() => {
+    try {
+      const storedBoundary = localStorage.getItem('orbitcare_geofence')
+      const parsedBoundary = storedBoundary ? JSON.parse(storedBoundary) : null
+      return isValidBoundary(parsedBoundary) ? parsedBoundary : DEFAULT_BOUNDARY
+    } catch {
+      return DEFAULT_BOUNDARY
+    }
+  })
   const [historyLogs, setHistoryLogs] = useState(() => {
     try {
       const storedHistory = localStorage.getItem('orbitcare_history')
@@ -241,7 +259,13 @@ export function DeviceProvider({ children }) {
   }
 
   const updateGeofence = (coordinates) => {
-    if (coordinates.length >= 3) setGeofenceBoundary(coordinates)
+    if (!isValidBoundary(coordinates)) return
+
+    setGeofenceBoundary(coordinates)
+    try {
+      localStorage.setItem('orbitcare_geofence', JSON.stringify(coordinates))
+    } catch {
+    }
   }
 
   const handleHardwareBoundaryStream = (newCoordinatesArray) => {
