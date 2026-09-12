@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   RotateCcw,
+  Siren,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/lib/DeviceContext";
@@ -47,6 +48,7 @@ export default function Settings() {
     geofenceBoundary,
     updateGeofence,
     simulateSafeZoneBreach,
+    simulateSOS,
     resetToSafe,
   } = useDevice();
 
@@ -126,7 +128,7 @@ export default function Settings() {
           </div>
           <div className="space-y-2">
             <p className="text-sm font-semibold">Simulation Triggers</p>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               <Button
                 variant="destructive"
                 onClick={simulateSafeZoneBreach}
@@ -134,6 +136,14 @@ export default function Settings() {
               >
                 <AlertTriangle className="mr-2 h-4 w-4" />
                 Simulate Outside Breach
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={simulateSOS}
+                className="rounded-xl"
+              >
+                <Siren className="mr-2 h-4 w-4" />
+                Simulate SOS Alert
               </Button>
               <Button
                 onClick={resetToSafe}
