@@ -7,6 +7,11 @@ const DEFAULT_TELEMETRY = {
   status: 'Safe',
   signalStrength: '-68 dBm',
 }
+const HARDWARE_WAITING_TELEMETRY = {
+  coordinates: null,
+  status: 'Waiting for GPS Fix...',
+  signalStrength: null,
+}
 
 function isValidBoundary(boundary) {
   return Array.isArray(boundary)
@@ -106,7 +111,7 @@ export function DeviceProvider({ children }) {
   useEffect(() => {
     if (previousStatus.current === telemetry.status) return
 
-    const [lat, lng] = telemetry.coordinates
+    const [lat, lng] = telemetry.coordinates || []
     if (pushNotifications && ['ALERT', 'SOS'].includes(telemetry.status) && typeof Notification !== 'undefined') {
       const notify = () => new Notification(
         telemetry.status === 'SOS' ? 'EMERGENCY: SOS Alert' : 'EMERGENCY: Safe Zone Breached!',
@@ -137,7 +142,9 @@ export function DeviceProvider({ children }) {
           : telemetry.status === 'ALERT'
             ? 'Safe Zone Breached'
             : 'Restored to Safe',
-        coordinates: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        coordinates: Number.isFinite(lat) && Number.isFinite(lng)
+          ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+          : 'Waiting for GPS Fix...',
         type: isEmergency ? 'danger' : 'success',
         status: telemetry.status,
         signalStrength: telemetry.signalStrength,
@@ -194,6 +201,8 @@ export function DeviceProvider({ children }) {
       return
     }
 
+    isSosLatched.current = false
+    setTelemetry(HARDWARE_WAITING_TELEMETRY)
     setConnectionStatus('searching')
     if (typeof navigator === 'undefined' || !navigator.bluetooth) {
       setConnectionStatus('disconnected')
@@ -258,7 +267,7 @@ export function DeviceProvider({ children }) {
     disconnect()
     setConnectionStatus('disconnected')
     isSosLatched.current = false
-    setTelemetry(DEFAULT_TELEMETRY)
+    setTelemetry(isDemoMode ? DEFAULT_TELEMETRY : HARDWARE_WAITING_TELEMETRY)
   }, [isDemoMode])
 
   const toggleDemoMode = () => {
@@ -315,15 +324,19 @@ export function DeviceProvider({ children }) {
 
     if (!nextTelemetry || typeof nextTelemetry !== 'object') return
 
-    const [currentLat, currentLng] = telemetry.coordinates
+    const [currentLat, currentLng] = telemetry.coordinates || []
     const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0])
     const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1])
     const coordinates = Number.isFinite(lat) && Number.isFinite(lng)
       ? [parseFloat(lat), parseFloat(lng)]
       : [currentLat, currentLng]
+    const hasValidCoordinates = Number.isFinite(coordinates[0]) && Number.isFinite(coordinates[1])
     const rssi = Number(nextTelemetry.rssi)
+    const signalStrength = Number.isFinite(rssi)
+      ? `${rssi} dBm`
+      : '-68 dBm'
     const normalizedPayload = (rawString || String(nextTelemetry.status ?? '')).toUpperCase()
-    const isReset = ['RESET PRESSED', 'SOS ALERT CLEARED', 'CAREGIVER RESET']
+    const isReset = ['RESET', 'CAREGIVER RESET', 'SOS ALERT CLEARED']
       .some((marker) => normalizedPayload.includes(marker))
     const isSos = normalizedPayload.includes('EMERGENCY') || normalizedPayload.includes('SOS')
     let status
@@ -340,11 +353,12 @@ export function DeviceProvider({ children }) {
       status = normalizeTelemetryStatus(nextTelemetry.status ?? rawString)
     }
 
+    if (!hasValidCoordinates && status !== 'SOS') status = 'Waiting for GPS Fix...'
+
     setTelemetry({
-      ...nextTelemetry,
       coordinates,
       status,
-      ...(Number.isFinite(rssi) && { signalStrength: `${rssi} dBm` }),
+      signalStrength,
     })
   }
 
