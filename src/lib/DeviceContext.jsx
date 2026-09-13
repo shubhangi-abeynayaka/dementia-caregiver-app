@@ -197,47 +197,21 @@ export function DeviceProvider({ children }) {
       })
       const server = await device.gatt.connect()
       const service = await server.getPrimaryService(TELEMETRY_SERVICE_UUID)
-      const characteristic = await service.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID)
-      const handleTelemetry = (event) => {
-        const { value } = event.target
-        const payload = new TextDecoder().decode(value)
-
-        try {
-          let parsed
-          try {
-            parsed = JSON.parse(payload)
-          } catch {
-            parsed = {
-              lat: payload.match(/\bLat(?:itude)?\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-              lng: payload.match(/\b(?:Lng|Lon|Longitude)\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-              rssi: payload.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-              status: payload,
-            }
-          }
-
-          const lat = Number(parsed.lat)
-          const lng = Number(parsed.lng)
-          const rssi = Number(parsed.rssi)
-
-          if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(rssi)) return
-
-          receiveTelemetry({
-            coordinates: [lat, lng],
-            status: parsed.status,
-            signalStrength: `${rssi} dBm`,
-          })
-        } catch {
-          // Ignore incomplete or malformed BLE packets.
-        }
+      const txCharacteristic = await service.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID)
+      const handleBleNotification = (event) => {
+        const value = event.target.value
+        const rawString = new TextDecoder().decode(value)
+        console.log("📡 Raw BLE Packet Received:", rawString)
+        receiveTelemetry(rawString)
       }
 
       const handleDisconnect = () => disconnect()
       device.addEventListener('gattserverdisconnected', handleDisconnect)
-      characteristic.addEventListener('characteristicvaluechanged', handleTelemetry)
-      await characteristic.startNotifications()
+      txCharacteristic.addEventListener('characteristicvaluechanged', handleBleNotification)
+      await txCharacteristic.startNotifications()
       bluetoothDevice.current = device
-      telemetryCharacteristic.current = characteristic
-      telemetryHandler.current = handleTelemetry
+      telemetryCharacteristic.current = txCharacteristic
+      telemetryHandler.current = handleBleNotification
       bluetoothDisconnectHandler.current = handleDisconnect
       setConnectionStatus('connected')
     } catch {
@@ -308,10 +282,35 @@ export function DeviceProvider({ children }) {
     setHistoryLogs((currentHistory) => currentHistory.filter((entry) => entry.id !== id))
   }
 
-  const receiveTelemetry = (nextTelemetry) => {
+  const receiveTelemetry = (payload) => {
+    let nextTelemetry = payload
+
+    if (typeof payload === 'string') {
+      try {
+        nextTelemetry = JSON.parse(payload)
+      } catch {
+        nextTelemetry = {
+          lat: payload.match(/\bLat(?:itude)?\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+          lng: payload.match(/\b(?:Lng|Lon|Longitude)\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+          rssi: payload.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+          status: payload,
+        }
+      }
+    }
+
+    if (!nextTelemetry || typeof nextTelemetry !== 'object') return
+
+    const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0])
+    const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1])
+    const rssi = Number(nextTelemetry.rssi)
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
     setTelemetry({
       ...nextTelemetry,
+      coordinates: [lat, lng],
       status: normalizeTelemetryStatus(nextTelemetry.status),
+      ...(Number.isFinite(rssi) && { signalStrength: `${rssi} dBm` }),
     })
   }
 
