@@ -5,6 +5,7 @@ import {
   Polygon,
   useJsApiLoader,
 } from "@react-google-maps/api";
+import { LocateFixed } from "lucide-react";
 import { useDevice } from "@/lib/DeviceContext";
 
 const containerStyle = { width: "100%", height: "100%" };
@@ -45,6 +46,8 @@ export default function MapWidget({
 }) {
   const { geofenceBoundary: deviceGeofenceBoundary, connectionStatus } = useDevice();
   const mapRef = useRef(null);
+  const hasCenteredOnFirstPosition = useRef(false);
+  const initialCenter = useRef(fallbackCenter);
   const rawPosition = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
     ? telemetry.coordinates
     : null;
@@ -52,6 +55,7 @@ export default function MapWidget({
   const boundaryPoints = (geofenceBoundary || deviceGeofenceBoundary || [])
     .map(toLatLng)
     .filter(Boolean);
+  const hasValidBoundary = boundaryPoints.length >= 3;
   const isBreached = telemetry?.status === "ALERT" || telemetry?.status === "SOS";
   const { isLoaded, loadError } = useJsApiLoader({
     id: "dementia-caregiver-google-maps",
@@ -59,17 +63,25 @@ export default function MapWidget({
   });
 
   const fitMapBounds = (map) => {
-    if (!map || !window.google || !position || boundaryPoints.length < 3) return;
+    if (!map || !window.google || !position || boundaryPoints.length < 3) return false;
 
     const bounds = new window.google.maps.LatLngBounds();
     boundaryPoints.forEach((point) => bounds.extend(point));
     bounds.extend(position);
     map.fitBounds(bounds, 40);
+    return true;
   };
 
   useEffect(() => {
-    fitMapBounds(mapRef.current);
-  }, [boundaryPoints, position]);
+    const map = mapRef.current;
+    if (!map || !position || hasCenteredOnFirstPosition.current) return;
+
+    if (!fitMapBounds(map)) {
+      map.panTo(position);
+      map.setZoom(17);
+    }
+    hasCenteredOnFirstPosition.current = true;
+  }, [position?.lat, position?.lng]);
 
   if (loadError) {
     return <div className="map-widget-container" style={{ "--map-height": `${height}px` }}>Unable to load Google Maps.</div>;
@@ -81,23 +93,41 @@ export default function MapWidget({
 
   return (
     <div
-      className="map-widget-container"
+      className="map-widget-container relative"
       style={{ "--map-height": `${height}px` }}
     >
       <GoogleMap
-        center={position || fallbackCenter}
+        center={initialCenter.current}
         zoom={16}
         mapContainerStyle={containerStyle}
         options={mapOptions(interactive)}
         onLoad={(map) => {
           mapRef.current = map;
-          fitMapBounds(map);
+          if (position && !hasCenteredOnFirstPosition.current) {
+            if (!fitMapBounds(map)) {
+              map.panTo(position);
+              map.setZoom(17);
+            }
+            hasCenteredOnFirstPosition.current = true;
+          }
         }}
         onUnmount={() => {
           mapRef.current = null;
         }}
       >
-        {boundaryPoints.length >= 3 && (
+        {position && (
+          <button
+            type="button"
+            className="absolute right-3 top-3 z-[1000] inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-md transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onClick={() => mapRef.current?.panTo(position)}
+            title="Recenter on Patient"
+            aria-label="Recenter on Patient"
+          >
+            <LocateFixed className="h-4 w-4" aria-hidden="true" />
+            <span>Recenter</span>
+          </button>
+        )}
+        {hasValidBoundary && (
           <Polygon
             paths={boundaryPoints}
             options={{

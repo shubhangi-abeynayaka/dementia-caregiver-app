@@ -23,6 +23,53 @@ function isValidBoundary(boundary) {
     ))
 }
 
+function normalizeBoundaryPoint(point) {
+  if (!Array.isArray(point) || point.length < 2) return null
+
+  const lat = Number(point[0])
+  const lng = Number(point[1])
+  return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null
+}
+
+function distanceInMeters(firstPoint, secondPoint) {
+  if (!Array.isArray(firstPoint) || !Array.isArray(secondPoint)) return Infinity
+
+  const [firstLat, firstLng] = firstPoint.map(Number)
+  const [secondLat, secondLng] = secondPoint.map(Number)
+  if (![firstLat, firstLng, secondLat, secondLng].every(Number.isFinite)) return Infinity
+
+  const earthRadius = 6371000
+  const toRadians = (degrees) => degrees * Math.PI / 180
+  const deltaLat = toRadians(secondLat - firstLat)
+  const deltaLng = toRadians(secondLng - firstLng)
+  const latitudeFactor = Math.cos(toRadians((firstLat + secondLat) / 2))
+  return earthRadius * Math.sqrt(
+    (deltaLat * deltaLat) + (latitudeFactor * deltaLng * latitudeFactor * deltaLng),
+  )
+}
+
+function extractBoundaryPoints(payload, rawString) {
+  const points = []
+  const addPoint = (point) => {
+    const normalizedPoint = normalizeBoundaryPoint(point)
+    if (normalizedPoint) points.push(normalizedPoint)
+  }
+
+  if (Array.isArray(payload)) payload.forEach(addPoint)
+  if (Array.isArray(payload?.boundary)) payload.boundary.forEach(addPoint)
+  if (Array.isArray(payload?.boundaryPoints)) payload.boundaryPoints.forEach(addPoint)
+  if (payload?.point) addPoint(payload.point)
+  if (payload?.corner) addPoint(payload.corner)
+  if (payload?.boundaryLat != null && payload?.boundaryLng != null) {
+    addPoint([payload.boundaryLat, payload.boundaryLng])
+  }
+
+  const pointMatch = rawString.match(/(?:POINT|BOUNDARY)\s*:\s*([-0-9.]+)\s*[, ]\s*([-0-9.]+)/i)
+  if (pointMatch) addPoint([pointMatch[1], pointMatch[2]])
+
+  return points
+}
+
 function normalizeTelemetryStatus(status) {
   const normalizedStatus = String(status ?? '').toUpperCase()
 
@@ -69,19 +116,12 @@ function createEmergencySiren() {
 
 export function DeviceProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
-  const [isDemoMode, setIsDemoMode] = useState(true)
+  const [isDemoMode, setIsDemoMode] = useState(false)
   const [pushNotifications, setPushNotifications] = useState(true)
   const [audibleAlarm, setAudibleAlarm] = useState(true)
-  const [telemetry, setTelemetry] = useState(DEFAULT_TELEMETRY)
-  const [geofenceBoundary, setGeofenceBoundary] = useState(() => {
-    try {
-      const storedBoundary = localStorage.getItem('orbitcare_geofence')
-      const parsedBoundary = storedBoundary ? JSON.parse(storedBoundary) : null
-      return isValidBoundary(parsedBoundary) ? parsedBoundary : DEFAULT_BOUNDARY
-    } catch {
-      return DEFAULT_BOUNDARY
-    }
-  })
+  const [telemetry, setTelemetry] = useState(HARDWARE_WAITING_TELEMETRY)
+  const [geofenceBoundary, setGeofenceBoundary] = useState([])
+  const [boundaryWarning, setBoundaryWarning] = useState(false)
   const [historyLogs, setHistoryLogs] = useState(() => {
     try {
       const storedHistory = localStorage.getItem('orbitcare_history')
@@ -191,6 +231,26 @@ export function DeviceProvider({ children }) {
     }
   }, [historyLogs])
 
+  useEffect(() => {
+    if (isDemoMode) {
+      try {
+        const storedBoundary = localStorage.getItem('orbitcare_geofence')
+        const parsedBoundary = storedBoundary ? JSON.parse(storedBoundary) : null
+        setGeofenceBoundary(isValidBoundary(parsedBoundary) ? parsedBoundary : DEFAULT_BOUNDARY)
+      } catch {
+        setGeofenceBoundary(DEFAULT_BOUNDARY)
+      }
+      setBoundaryWarning(false)
+      setTelemetry(DEFAULT_TELEMETRY)
+      setConnectionStatus('connected')
+      return
+    }
+
+    setGeofenceBoundary([])
+    setBoundaryWarning(false)
+    setTelemetry(HARDWARE_WAITING_TELEMETRY)
+  }, [isDemoMode])
+
   const connect = async () => {
     requestNotificationPermission()
     setError(null)
@@ -202,6 +262,8 @@ export function DeviceProvider({ children }) {
     }
 
     isSosLatched.current = false
+    setGeofenceBoundary([])
+    setBoundaryWarning(false)
     setTelemetry(HARDWARE_WAITING_TELEMETRY)
     setConnectionStatus('searching')
     if (typeof navigator === 'undefined' || !navigator.bluetooth) {
@@ -262,6 +324,7 @@ export function DeviceProvider({ children }) {
   }
 
   useEffect(() => {
+    if (isDemoMode) return
     if (connectionStatus === 'disconnected') return
 
     disconnect()
@@ -273,14 +336,33 @@ export function DeviceProvider({ children }) {
   const toggleDemoMode = () => {
     if (!isDemoMode) {
       requestNotificationPermission()
+      disconnect()
     }
-    setIsDemoMode((current) => !current)
+    setIsDemoMode((current) => {
+      if (current) {
+        setGeofenceBoundary([])
+        setBoundaryWarning(false)
+        setTelemetry(HARDWARE_WAITING_TELEMETRY)
+      } else {
+        try {
+          const storedBoundary = localStorage.getItem('orbitcare_geofence')
+          const parsedBoundary = storedBoundary ? JSON.parse(storedBoundary) : null
+          setGeofenceBoundary(isValidBoundary(parsedBoundary) ? parsedBoundary : DEFAULT_BOUNDARY)
+        } catch {
+          setGeofenceBoundary(DEFAULT_BOUNDARY)
+        }
+        setBoundaryWarning(false)
+        setTelemetry(DEFAULT_TELEMETRY)
+      }
+      return !current
+    })
   }
 
   const updateGeofence = (coordinates) => {
     if (!isValidBoundary(coordinates)) return
 
     setGeofenceBoundary(coordinates)
+    setBoundaryWarning(false)
     try {
       localStorage.setItem('orbitcare_geofence', JSON.stringify(coordinates))
     } catch {
@@ -288,7 +370,24 @@ export function DeviceProvider({ children }) {
   }
 
   const handleHardwareBoundaryStream = (newCoordinatesArray) => {
-    updateGeofence(newCoordinatesArray)
+    if (!Array.isArray(newCoordinatesArray)) return
+
+    const incomingPoints = newCoordinatesArray
+      .map(normalizeBoundaryPoint)
+      .filter(Boolean)
+    if (incomingPoints.length === 0) return
+
+    setGeofenceBoundary((currentBoundary) => {
+      const nextBoundary = [...currentBoundary]
+      incomingPoints.forEach((point) => {
+        const existingIndex = nextBoundary.findIndex(
+          ([lat, lng]) => lat === point[0] && lng === point[1],
+        )
+        if (existingIndex === -1) nextBoundary.push(point)
+      })
+      return nextBoundary
+    })
+    setBoundaryWarning(false)
   }
 
   const clearAllHistory = () => {
@@ -324,6 +423,17 @@ export function DeviceProvider({ children }) {
 
     if (!nextTelemetry || typeof nextTelemetry !== 'object') return
 
+    const normalizedPayload = (rawString || String(nextTelemetry.status ?? '')).toUpperCase()
+    if (normalizedPayload.includes('WARN: BOUNDARY NOT SET')) {
+      setGeofenceBoundary([])
+      setBoundaryWarning(true)
+    } else {
+      const incomingBoundaryPoints = extractBoundaryPoints(nextTelemetry, rawString)
+      if (incomingBoundaryPoints.length > 0) {
+        handleHardwareBoundaryStream(incomingBoundaryPoints)
+      }
+    }
+
     const [currentLat, currentLng] = telemetry.coordinates || []
     const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0])
     const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1])
@@ -335,7 +445,6 @@ export function DeviceProvider({ children }) {
     const signalStrength = Number.isFinite(rssi)
       ? `${rssi} dBm`
       : '-68 dBm'
-    const normalizedPayload = (rawString || String(nextTelemetry.status ?? '')).toUpperCase()
     const isReset = ['RESET', 'CAREGIVER RESET', 'SOS ALERT CLEARED']
       .some((marker) => normalizedPayload.includes(marker))
     const isSos = normalizedPayload.includes('EMERGENCY') || normalizedPayload.includes('SOS')
@@ -354,6 +463,11 @@ export function DeviceProvider({ children }) {
     }
 
     if (!hasValidCoordinates && status !== 'SOS') status = 'Waiting for GPS Fix...'
+
+    const isGpsJitter = hasValidCoordinates
+      && distanceInMeters(telemetry.coordinates, coordinates) < 3
+    const hasTelemetryChange = status !== telemetry.status || signalStrength !== telemetry.signalStrength
+    if (isGpsJitter && !hasTelemetryChange && !isReset) return
 
     setTelemetry({
       coordinates,
@@ -403,6 +517,7 @@ export function DeviceProvider({ children }) {
       demoMode: isDemoMode,
       telemetry,
       geofenceBoundary,
+      boundaryWarning,
       geofencePoints: geofenceBoundary.map(([lat, lng]) => ({ lat, lng })),
       historyLogs,
       error,
@@ -419,7 +534,7 @@ export function DeviceProvider({ children }) {
       simulateSOS,
       resetToSafe,
     }),
-    [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, telemetry, geofenceBoundary, historyLogs, error]
+    [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, telemetry, geofenceBoundary, boundaryWarning, historyLogs, error]
   )
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>

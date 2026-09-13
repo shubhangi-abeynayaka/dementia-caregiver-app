@@ -6,6 +6,7 @@ import {
   MapPin,
   Info,
   AlertCircle,
+  RadioTower,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/lib/DeviceContext";
@@ -17,19 +18,41 @@ import { formatCoords } from "@/lib/geofence";
 export default function Dashboard() {
   const {
     connectionStatus,
+    isDemoMode,
     telemetry,
     connect,
     disconnect,
-    demoMode,
     geofenceBoundary,
+    boundaryWarning,
     error,
   } = useDevice();
 
   const connected = connectionStatus === "connected";
+  const showActiveTracking = isDemoMode || connected;
   const connecting = ["connecting", "searching"].includes(connectionStatus);
   const coordinatesLabel = Array.isArray(telemetry?.coordinates)
     ? formatCoords(...telemetry.coordinates)
     : "Waiting for GPS fix...";
+  const deviceStatus = isDemoMode
+    ? "Active - Demo Mode"
+    : connectionStatus === "connected"
+    ? "Device Connected"
+    : "Disconnected";
+  const boundaryStatus = isDemoMode
+    ? "Active (Demo Geofence)"
+    : boundaryWarning || geofenceBoundary.length < 3
+    ? "Not Set (Add 3+ Points)"
+    : "Active (Hardware Geofence)";
+  const deviceStatusClass = isDemoMode
+    ? "bg-blue-100 text-blue-700"
+    : connected
+    ? "bg-emerald-100 text-emerald-700"
+    : "bg-red-100 text-red-700";
+  const boundaryStatusClass = isDemoMode
+    ? "bg-blue-100 text-blue-700"
+    : boundaryStatus.startsWith("Not Set")
+    ? "bg-orange-100 text-orange-700"
+    : "bg-emerald-100 text-emerald-700";
 
   return (
     <div className="space-y-4">
@@ -48,7 +71,9 @@ export default function Dashboard() {
             }`}
           />
           {connected
-            ? `Connected${demoMode ? " · Demo" : ""}`
+            ? `Connected${isDemoMode ? " · Demo" : ""}`
+            : isDemoMode
+            ? "Demo Mode"
             : connectionStatus === "searching"
             ? "Searching for Hardware Receiver..."
             : connecting
@@ -57,7 +82,26 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!connected ? (
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-sm space-y-3">
+        <div className="flex items-center gap-2">
+          <RadioTower className="w-5 h-5 text-[hsl(var(--accent))]" aria-hidden="true" />
+          <h2 className="font-semibold">Hardware Device Status</h2>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">Device Status</span>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${deviceStatusClass}`}>
+            {deviceStatus}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">Boundary Status</span>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold text-right ${boundaryStatusClass}`}>
+            {boundaryStatus}
+          </span>
+        </div>
+      </div>
+
+      {!showActiveTracking ? (
         <div className="bg-card rounded-3xl p-8 text-center shadow-sm border border-border">
           <div className="w-16 h-16 rounded-full bg-[hsl(var(--accent))]/15 flex items-center justify-center mx-auto mb-4">
             <Bluetooth className="w-8 h-8 text-[hsl(var(--accent))]" />
@@ -66,11 +110,6 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-2 text-sm">
             Pair with your ESP32 LoRa receiver to start monitoring the patient.
           </p>
-          {demoMode && (
-            <p className="mt-2 text-xs text-[hsl(var(--accent))] font-medium">
-              Demo Mode is on — Connect will simulate packets.
-            </p>
-          )}
           {error && (
             <p className="mt-3 text-sm text-destructive flex items-center justify-center gap-1.5">
               <AlertCircle className="w-4 h-4" />

@@ -39,7 +39,7 @@ function ToggleButton({ checked, label, onClick }) {
 export default function Settings() {
   const {
     isDemoMode,
-    setIsDemoMode,
+    toggleDemoMode,
     pushNotifications,
     setPushNotifications,
     audibleAlarm,
@@ -105,7 +105,7 @@ export default function Settings() {
           <ToggleButton
             label="Demo Mode"
             checked={isDemoMode}
-            onClick={() => setIsDemoMode(!isDemoMode)}
+            onClick={toggleDemoMode}
           />
         </div>
       </div>
