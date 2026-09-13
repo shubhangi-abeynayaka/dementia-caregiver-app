@@ -1,5 +1,5 @@
 import { Outlet, Link } from "react-router-dom";
-import { Settings as SettingsIcon, Bluetooth, BluetoothConnected } from "lucide-react";
+import { Settings as SettingsIcon, RadioTower } from "lucide-react";
 import BottomNav from "./BottomNav";
 import { useDevice } from "@/lib/DeviceContext";
 
@@ -15,7 +15,7 @@ export default function AppLayout() {
           <div>
             <span className="font-bold text-lg block">Orbit<span className="text-blue-600">Care</span></span>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {connected ? <BluetoothConnected className="h-3.5 w-3.5 text-[hsl(var(--safe))]" /> : <Bluetooth className="h-3.5 w-3.5" />}
+              <RadioTower className={`h-3.5 w-3.5 ${connected ? "text-[hsl(var(--safe))]" : ""}`} />
               <span>{connected ? `Connected${demoMode ? " · Demo" : ""}` : "Disconnected"}</span>
             </div>
           </div>

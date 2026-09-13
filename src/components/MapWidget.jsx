@@ -47,6 +47,7 @@ export default function MapWidget({
   const { geofenceBoundary: deviceGeofenceBoundary, connectionStatus } = useDevice();
   const mapRef = useRef(null);
   const hasCenteredOnFirstPosition = useRef(false);
+  const hadValidBoundary = useRef(false);
   const initialCenter = useRef(fallbackCenter);
   const rawPosition = connectionStatus === "connected" && Array.isArray(telemetry?.coordinates)
     ? telemetry.coordinates
@@ -82,6 +83,14 @@ export default function MapWidget({
     }
     hasCenteredOnFirstPosition.current = true;
   }, [position?.lat, position?.lng]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && position && hasValidBoundary && !hadValidBoundary.current) {
+      fitMapBounds(map);
+    }
+    hadValidBoundary.current = hasValidBoundary;
+  }, [hasValidBoundary, position?.lat, position?.lng]);
 
   if (loadError) {
     return <div className="map-widget-container" style={{ "--map-height": `${height}px` }}>Unable to load Google Maps.</div>;

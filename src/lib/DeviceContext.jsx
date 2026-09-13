@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import mqtt from 'mqtt'
 import { DEFAULT_BOUNDARY } from '@/lib/geofence'
 
 const DeviceContext = createContext(null)
@@ -12,6 +13,7 @@ const HARDWARE_WAITING_TELEMETRY = {
   status: 'Waiting for GPS Fix...',
   signalStrength: null,
 }
+const DEFAULT_MQTT_BROKER_URL = 'ws://10.45.32.10:9001'
 
 function isValidBoundary(boundary) {
   return Array.isArray(boundary)
@@ -29,6 +31,41 @@ function normalizeBoundaryPoint(point) {
   const lat = Number(point[0])
   const lng = Number(point[1])
   return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null
+}
+
+function createMaximumAreaBoundary(points) {
+  const uniquePoints = points
+    .map(normalizeBoundaryPoint)
+    .filter(Boolean)
+    .filter((point, index, allPoints) => (
+      allPoints.findIndex(([lat, lng]) => lat === point[0] && lng === point[1]) === index
+    ))
+    .sort(([firstLat, firstLng], [secondLat, secondLng]) => (
+      firstLat - secondLat || firstLng - secondLng
+    ))
+
+  if (uniquePoints.length <= 2) return uniquePoints
+
+  const crossProduct = (origin, firstPoint, secondPoint) => (
+    ((firstPoint[0] - origin[0]) * (secondPoint[1] - origin[1]))
+      - ((firstPoint[1] - origin[1]) * (secondPoint[0] - origin[0]))
+  )
+  const lowerHull = []
+  uniquePoints.forEach((point) => {
+    while (lowerHull.length >= 2 && crossProduct(lowerHull.at(-2), lowerHull.at(-1), point) <= 0) {
+      lowerHull.pop()
+    }
+    lowerHull.push(point)
+  })
+  const upperHull = []
+  uniquePoints.slice().reverse().forEach((point) => {
+    while (upperHull.length >= 2 && crossProduct(upperHull.at(-2), upperHull.at(-1), point) <= 0) {
+      upperHull.pop()
+    }
+    upperHull.push(point)
+  })
+
+  return lowerHull.slice(0, -1).concat(upperHull.slice(0, -1))
 }
 
 function distanceInMeters(firstPoint, secondPoint) {
@@ -64,10 +101,21 @@ function extractBoundaryPoints(payload, rawString) {
     addPoint([payload.boundaryLat, payload.boundaryLng])
   }
 
-  const pointMatch = rawString.match(/(?:POINT|BOUNDARY)\s*:\s*([-0-9.]+)\s*[, ]\s*([-0-9.]+)/i)
+  if (Array.isArray(payload?.points)) {
+    payload.points
+      .filter((point) => point?.latitude !== '' && point?.longitude !== '')
+      .sort((firstPoint, secondPoint) => Number(firstPoint.id) - Number(secondPoint.id))
+      .forEach((point) => addPoint([point.latitude, point.longitude]))
+  }
+
+  const pointMatch = rawString.match(/(?:POINT(?:_ADDED)?|BOUNDARY)[\s\S]*?Lat:\s*([0-9.-]+),\s*Lng:\s*([0-9.-]+)/i)
   if (pointMatch) addPoint([pointMatch[1], pointMatch[2]])
 
   return points
+}
+
+function isBoundarySnapshot(payload) {
+  return payload && typeof payload === 'object' && Array.isArray(payload.points)
 }
 
 function normalizeTelemetryStatus(status) {
@@ -119,8 +167,19 @@ export function DeviceProvider({ children }) {
   const [isDemoMode, setIsDemoMode] = useState(false)
   const [pushNotifications, setPushNotifications] = useState(true)
   const [audibleAlarm, setAudibleAlarm] = useState(true)
+  const [mqttBrokerUrl, setMqttBrokerUrl] = useState(() => {
+    try {
+      return localStorage.getItem('orbitcare_mqtt_broker_url') || import.meta.env.VITE_MQTT_WS_URL || DEFAULT_MQTT_BROKER_URL
+    } catch {
+      return import.meta.env.VITE_MQTT_WS_URL || DEFAULT_MQTT_BROKER_URL
+    }
+  })
   const [telemetry, setTelemetry] = useState(HARDWARE_WAITING_TELEMETRY)
-  const [geofenceBoundary, setGeofenceBoundary] = useState([])
+  const [boundaryDeviceId, setBoundaryDeviceId] = useState(null)
+  const [locationDeviceId, setLocationDeviceId] = useState(null)
+  const [geofenceBoundary, setGeofenceBoundary] = useState(() => (
+    isDemoMode ? DEFAULT_BOUNDARY : []
+  ))
   const [boundaryWarning, setBoundaryWarning] = useState(false)
   const [historyLogs, setHistoryLogs] = useState(() => {
     try {
@@ -134,19 +193,8 @@ export function DeviceProvider({ children }) {
   const previousStatus = useRef(telemetry.status)
   const isSosLatched = useRef(false)
   const previousConnectionStatus = useRef(connectionStatus)
-  const bluetoothDevice = useRef(null)
-  const telemetryCharacteristic = useRef(null)
-  const telemetryHandler = useRef(null)
-  const bluetoothDisconnectHandler = useRef(null)
-
-  const TELEMETRY_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
-  const TELEMETRY_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
-
-  const requestNotificationPermission = () => {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }
+  const mqttClientRef = useRef(null)
+  const receiveTelemetryRef = useRef(null)
 
   useEffect(() => {
     if (previousStatus.current === telemetry.status) return
@@ -232,6 +280,10 @@ export function DeviceProvider({ children }) {
   }, [historyLogs])
 
   useEffect(() => {
+    console.log('📍 Current Geofence Boundary:', JSON.stringify(geofenceBoundary))
+  }, [geofenceBoundary])
+
+  useEffect(() => {
     if (isDemoMode) {
       try {
         const storedBoundary = localStorage.getItem('orbitcare_geofence')
@@ -251,75 +303,13 @@ export function DeviceProvider({ children }) {
     setTelemetry(HARDWARE_WAITING_TELEMETRY)
   }, [isDemoMode])
 
-  const connect = async () => {
-    requestNotificationPermission()
-    setError(null)
-
-    if (isDemoMode) {
-      setTelemetry(DEFAULT_TELEMETRY)
-      setConnectionStatus('connected')
-      return
-    }
-
-    isSosLatched.current = false
-    setGeofenceBoundary([])
-    setBoundaryWarning(false)
-    setTelemetry(HARDWARE_WAITING_TELEMETRY)
-    setConnectionStatus('searching')
-    if (typeof navigator === 'undefined' || !navigator.bluetooth) {
-      setConnectionStatus('disconnected')
-      setError('Hardware Disconnected / Receiver Not Found')
-      return
-    }
-
-    try {
-      const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [TELEMETRY_SERVICE_UUID],
-      })
-      const server = await device.gatt.connect()
-      const service = await server.getPrimaryService(TELEMETRY_SERVICE_UUID)
-      const txCharacteristic = await service.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID)
-      const handleBleNotification = (event) => {
-        const value = event.target.value
-        const rawString = new TextDecoder().decode(value)
-        console.log("📡 Raw BLE Packet Received:", rawString)
-        receiveTelemetry(rawString)
-      }
-
-      const handleDisconnect = () => disconnect()
-      device.addEventListener('gattserverdisconnected', handleDisconnect)
-      txCharacteristic.addEventListener('characteristicvaluechanged', handleBleNotification)
-      await txCharacteristic.startNotifications()
-      bluetoothDevice.current = device
-      telemetryCharacteristic.current = txCharacteristic
-      telemetryHandler.current = handleBleNotification
-      bluetoothDisconnectHandler.current = handleDisconnect
-      setConnectionStatus('connected')
-    } catch {
-      setConnectionStatus('disconnected')
-      setError('Hardware Disconnected / Receiver Not Found')
-    }
+  const connect = () => {
+    mqttClientRef.current?.reconnect()
   }
 
-  const disconnect = async () => {
-    const device = bluetoothDevice.current
-    const characteristic = telemetryCharacteristic.current
-
-    if (characteristic && telemetryHandler.current) {
-      characteristic.removeEventListener('characteristicvaluechanged', telemetryHandler.current)
-      await characteristic.stopNotifications().catch(() => {})
-    }
-    if (device) {
-      if (bluetoothDisconnectHandler.current) {
-        device.removeEventListener('gattserverdisconnected', bluetoothDisconnectHandler.current)
-      }
-      if (device.gatt.connected) device.gatt.disconnect()
-    }
-    telemetryCharacteristic.current = null
-    telemetryHandler.current = null
-    bluetoothDisconnectHandler.current = null
-    bluetoothDevice.current = null
+  const disconnect = () => {
+    mqttClientRef.current?.end()
+    mqttClientRef.current = null
     setConnectionStatus('disconnected')
   }
 
@@ -385,7 +375,7 @@ export function DeviceProvider({ children }) {
         )
         if (existingIndex === -1) nextBoundary.push(point)
       })
-      return nextBoundary
+      return createMaximumAreaBoundary(nextBoundary)
     })
     setBoundaryWarning(false)
   }
@@ -405,12 +395,17 @@ export function DeviceProvider({ children }) {
   const receiveTelemetry = (payload) => {
     let nextTelemetry = payload
     const rawString = typeof payload === 'string' ? payload : ''
+    const normalizedRawString = rawString.toUpperCase()
+    const coordinateMatch = rawString.match(/Lat:\s*([0-9.-]+),\s*Lng:\s*([0-9.-]+)/i)
+    const isBoundaryPointPacket = /POINT_ADDED\s*:/i.test(rawString)
+    const isBoundaryResetPacket = normalizedRawString.includes('POINTS_CLEARED')
+      || normalizedRawString.includes('CLEARED')
+      || /RESET\s*:/i.test(rawString)
 
     if (rawString) {
       try {
         nextTelemetry = JSON.parse(rawString)
       } catch {
-        const coordinateMatch = rawString.match(/Lat:\s*([0-9.-]+),\s*Lng:\s*([0-9.-]+)/i)
         const rssiMatch = rawString.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)
         nextTelemetry = {
           lat: coordinateMatch?.[1],
@@ -423,25 +418,43 @@ export function DeviceProvider({ children }) {
 
     if (!nextTelemetry || typeof nextTelemetry !== 'object') return
 
+    const locationPoint = Array.isArray(nextTelemetry.location)
+      ? nextTelemetry.location
+        .filter((point) => point?.latitude !== '' && point?.longitude !== '')
+        .sort((firstPoint, secondPoint) => Number(secondPoint.id) - Number(firstPoint.id))[0]
+      : null
     const normalizedPayload = (rawString || String(nextTelemetry.status ?? '')).toUpperCase()
-    if (normalizedPayload.includes('WARN: BOUNDARY NOT SET')) {
+    if (nextTelemetry.device_id) setLocationDeviceId(String(nextTelemetry.device_id))
+    if (isBoundaryResetPacket) {
       setGeofenceBoundary([])
       setBoundaryWarning(true)
-    } else {
-      const incomingBoundaryPoints = extractBoundaryPoints(nextTelemetry, rawString)
+    } else if (isBoundaryPointPacket) {
+      const incomingBoundaryPoints = coordinateMatch
+        ? [[Number(coordinateMatch[1]), Number(coordinateMatch[2])]]
+        : extractBoundaryPoints(nextTelemetry, rawString)
       if (incomingBoundaryPoints.length > 0) {
         handleHardwareBoundaryStream(incomingBoundaryPoints)
+        incomingBoundaryPoints.forEach((point) => {
+          console.log('📍 Added Boundary Point:', point)
+        })
       }
+    } else if (normalizedPayload.includes('WARN: BOUNDARY NOT SET')) {
+      setGeofenceBoundary([])
+      setBoundaryWarning(true)
     }
 
+    if (isBoundaryPointPacket || isBoundaryResetPacket) return
+
     const [currentLat, currentLng] = telemetry.coordinates || []
-    const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0])
-    const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1])
+    const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0] ?? locationPoint?.latitude)
+    const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1] ?? locationPoint?.longitude)
     const coordinates = Number.isFinite(lat) && Number.isFinite(lng)
       ? [parseFloat(lat), parseFloat(lng)]
       : [currentLat, currentLng]
     const hasValidCoordinates = Number.isFinite(coordinates[0]) && Number.isFinite(coordinates[1])
-    const rssi = Number(nextTelemetry.rssi)
+    const signalValue = nextTelemetry.rssi ?? locationPoint?.Signal
+    const rssiMatch = String(signalValue ?? '').match(/-?\d+(?:\.\d+)?/)
+    const rssi = rssiMatch ? Number(rssiMatch[0]) : NaN
     const signalStrength = Number.isFinite(rssi)
       ? `${rssi} dBm`
       : '-68 dBm'
@@ -459,7 +472,7 @@ export function DeviceProvider({ children }) {
     } else if (isSosLatched.current) {
       status = 'SOS'
     } else {
-      status = normalizeTelemetryStatus(nextTelemetry.status ?? rawString)
+      status = normalizeTelemetryStatus(nextTelemetry.status ?? locationPoint?.Status ?? rawString)
     }
 
     if (!hasValidCoordinates && status !== 'SOS') status = 'Waiting for GPS Fix...'
@@ -474,6 +487,97 @@ export function DeviceProvider({ children }) {
       status,
       signalStrength,
     })
+  }
+
+  const receiveBoundarySnapshot = (payload) => {
+    let parsedPayload = payload
+    if (typeof payload === 'string') {
+      try {
+        parsedPayload = JSON.parse(payload)
+      } catch {
+        receiveTelemetry(payload)
+        return
+      }
+    }
+
+    if (!isBoundarySnapshot(parsedPayload)) {
+      receiveTelemetry(payload)
+      return
+    }
+
+    const points = createMaximumAreaBoundary(extractBoundaryPoints(parsedPayload, ''))
+    if (parsedPayload.device_id) setBoundaryDeviceId(String(parsedPayload.device_id))
+    setGeofenceBoundary(points)
+    setBoundaryWarning(points.length < 3)
+    console.log('📍 MQTT Boundary Snapshot:', JSON.stringify(points))
+  }
+
+  receiveTelemetryRef.current = receiveTelemetry
+
+  useEffect(() => {
+    if (isDemoMode) return undefined
+
+    const brokerUrl = mqttBrokerUrl
+    const topics = ['orbitcare/boundary', 'orbitcare/location', 'orbitcare/signal']
+    setConnectionStatus('searching')
+    setError(null)
+
+    const client = mqtt.connect(brokerUrl, {
+      reconnectPeriod: 3000,
+      connectTimeout: 10000,
+    })
+    mqttClientRef.current = client
+
+    client.on('connect', () => {
+      client.subscribe(topics, (subscribeError) => {
+        if (subscribeError) {
+          setError(`MQTT subscription failed: ${subscribeError.message}`)
+          return
+        }
+        setConnectionStatus('connected')
+      })
+    })
+    client.on('message', (topic, message) => {
+      const rawPayload = message.toString()
+      if (topic === 'orbitcare/location') {
+        receiveTelemetryRef.current?.(rawPayload)
+        return
+      }
+
+      if (topic === 'orbitcare/boundary') {
+        receiveBoundarySnapshot(rawPayload)
+        return
+      }
+
+      if (topic === 'orbitcare/signal') {
+        const signalMatch = rawPayload.match(/-?\d+(?:\.\d+)?/)
+        const signalStrength = signalMatch ? `${Number(signalMatch[0])} dBm` : rawPayload
+        setTelemetry((currentTelemetry) => ({ ...currentTelemetry, signalStrength }))
+      }
+    })
+    client.on('error', () => {
+      setConnectionStatus('disconnected')
+      setError(`Unable to connect to MQTT broker at ${brokerUrl}`)
+    })
+    client.on('close', () => {
+      setConnectionStatus('disconnected')
+    })
+
+    return () => {
+      client.end(true)
+      if (mqttClientRef.current === client) mqttClientRef.current = null
+    }
+  }, [isDemoMode, mqttBrokerUrl])
+
+  const updateMqttBrokerUrl = (nextUrl) => {
+    const normalizedUrl = String(nextUrl || '').trim()
+    if (!normalizedUrl) return
+
+    setMqttBrokerUrl(normalizedUrl)
+    try {
+      localStorage.setItem('orbitcare_mqtt_broker_url', normalizedUrl)
+    } catch {
+    }
   }
 
   const clearAlert = () => {
@@ -514,9 +618,13 @@ export function DeviceProvider({ children }) {
       setPushNotifications,
       audibleAlarm,
       setAudibleAlarm,
+      mqttBrokerUrl,
+      updateMqttBrokerUrl,
       demoMode: isDemoMode,
       telemetry,
       geofenceBoundary,
+      boundaryDeviceId,
+      locationDeviceId,
       boundaryWarning,
       geofencePoints: geofenceBoundary.map(([lat, lng]) => ({ lat, lng })),
       historyLogs,
@@ -534,7 +642,7 @@ export function DeviceProvider({ children }) {
       simulateSOS,
       resetToSafe,
     }),
-    [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, telemetry, geofenceBoundary, boundaryWarning, historyLogs, error]
+    [connectionStatus, isDemoMode, pushNotifications, audibleAlarm, mqttBrokerUrl, telemetry, geofenceBoundary, boundaryWarning, boundaryDeviceId, locationDeviceId, historyLogs, error]
   )
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>

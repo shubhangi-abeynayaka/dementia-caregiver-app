@@ -1,3 +1,18 @@
+## MQTT Telemetry
+
+The browser subscribes to the local MQTT broker over MQTT-over-WebSocket. Configure the WebSocket listener in `.env`:
+
+```env
+VITE_MQTT_WS_URL=ws://10.45.32.10:9001
+```
+
+The app subscribes to:
+
+- `orbitcare/boundary`
+- `orbitcare/location`
+- `orbitcare/signal`
+
+The broker must expose a WebSocket listener, typically on port `9001`. Incoming messages update the map and status cards immediately without refreshing the page.
 # 🩺 Dementia Caregiver Tracking Platform
 
 A low-cost, subscription-free real-time monitoring web application designed to track dementia patients using custom LoRa/ESP32 GPS hardware devices.

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -44,6 +45,8 @@ export default function Settings() {
     setPushNotifications,
     audibleAlarm,
     setAudibleAlarm,
+    mqttBrokerUrl,
+    updateMqttBrokerUrl,
     telemetry,
     geofenceBoundary,
     updateGeofence,
@@ -51,6 +54,7 @@ export default function Settings() {
     simulateSOS,
     resetToSafe,
   } = useDevice();
+  const [brokerUrlDraft, setBrokerUrlDraft] = useState(mqttBrokerUrl);
 
   const applyPreset = (boundary) => {
     updateGeofence(boundary);
@@ -107,6 +111,31 @@ export default function Settings() {
             checked={isDemoMode}
             onClick={toggleDemoMode}
           />
+        </div>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-sm space-y-3">
+        <div>
+          <p className="font-semibold">MQTT Broker Address</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Use the broker WebSocket address provided by the local service.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            aria-label="MQTT broker WebSocket address"
+            value={brokerUrlDraft}
+            onChange={(event) => setBrokerUrlDraft(event.target.value)}
+            placeholder="ws://10.45.32.10:9001"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+          />
+          <Button
+            type="button"
+            onClick={() => updateMqttBrokerUrl(brokerUrlDraft)}
+            className="rounded-xl"
+          >
+            Apply
+          </Button>
         </div>
       </div>
 

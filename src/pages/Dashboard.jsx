@@ -1,12 +1,10 @@
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Bluetooth,
-  BluetoothConnected,
+  RadioTower,
   MapPin,
   Info,
   AlertCircle,
-  RadioTower,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/lib/DeviceContext";
@@ -75,7 +73,7 @@ export default function Dashboard() {
             : isDemoMode
             ? "Demo Mode"
             : connectionStatus === "searching"
-            ? "Searching for Hardware Receiver..."
+            ? "Connecting to MQTT broker..."
             : connecting
             ? "Connecting…"
             : "Disconnected"}
@@ -104,11 +102,11 @@ export default function Dashboard() {
       {!showActiveTracking ? (
         <div className="bg-card rounded-3xl p-8 text-center shadow-sm border border-border">
           <div className="w-16 h-16 rounded-full bg-[hsl(var(--accent))]/15 flex items-center justify-center mx-auto mb-4">
-            <Bluetooth className="w-8 h-8 text-[hsl(var(--accent))]" />
+            <RadioTower className="w-8 h-8 text-[hsl(var(--accent))]" />
           </div>
-          <h2 className="text-xl font-bold">Connect your receiver</h2>
+          <h2 className="text-xl font-bold">Connect to telemetry service</h2>
           <p className="text-muted-foreground mt-2 text-sm">
-            Pair with your ESP32 LoRa receiver to start monitoring the patient.
+            Waiting for the local MQTT broker to provide live patient telemetry.
           </p>
           {error && (
             <p className="mt-3 text-sm text-destructive flex items-center justify-center gap-1.5">
@@ -121,9 +119,9 @@ export default function Dashboard() {
             disabled={connecting}
             className="w-full mt-5 h-12 text-base rounded-xl"
           >
-            <BluetoothConnected className="w-5 h-5 mr-2" />
+            <RadioTower className="w-5 h-5 mr-2" />
             {connectionStatus === "searching"
-              ? "Searching for Hardware Receiver..."
+              ? "Connecting to MQTT broker..."
               : connecting
               ? "Connecting…"
               : "Connect Device"}
@@ -133,7 +131,7 @@ export default function Dashboard() {
             className="inline-flex items-center gap-1 text-sm text-muted-foreground mt-4 hover:text-foreground"
           >
             <Info className="w-4 h-4" />
-            Enable Demo Mode to try without hardware
+            Enable Demo Mode to test without the MQTT service
           </Link>
         </div>
       ) : (
@@ -175,7 +173,7 @@ export default function Dashboard() {
             <div className="rounded-3xl border border-border bg-card p-6 text-center shadow-sm">
               <h2 className="text-xl font-bold">Waiting for hardware telemetry</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Status and coordinates will appear when the receiver sends a GPS packet.
+                Status and coordinates will appear when the MQTT service sends a location packet.
               </p>
             </div>
           )}
@@ -225,8 +223,8 @@ export default function Dashboard() {
             onClick={disconnect}
             className="w-full text-muted-foreground"
           >
-            <Bluetooth className="w-4 h-4 mr-2" />
-            Disconnect
+            <RadioTower className="w-4 h-4 mr-2" />
+            Disconnect MQTT
           </Button>
         </>
       )}
