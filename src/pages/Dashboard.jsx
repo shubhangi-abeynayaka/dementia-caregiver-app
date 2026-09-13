@@ -27,6 +27,9 @@ export default function Dashboard() {
 
   const connected = connectionStatus === "connected";
   const connecting = ["connecting", "searching"].includes(connectionStatus);
+  const coordinatesLabel = Array.isArray(telemetry?.coordinates)
+    ? formatCoords(...telemetry.coordinates)
+    : "Waiting for GPS fix...";
 
   return (
     <div className="space-y-4">
@@ -110,7 +113,7 @@ export default function Dashboard() {
                       Patient outside safe zone!
                     </p>
                     <p className="text-white/90 text-sm">
-                      {formatCoords(...telemetry.coordinates)}
+                      {coordinatesLabel}
                     </p>
                   </div>
                 </div>
@@ -151,7 +154,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Coordinates</span>
               <span className="text-sm font-medium">
-                {formatCoords(...telemetry.coordinates)}
+                {coordinatesLabel}
               </span>
             </div>
             <div className="flex items-center justify-between">

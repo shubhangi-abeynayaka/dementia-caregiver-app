@@ -14,6 +14,9 @@ export default function MapView() {
     geofenceBoundary,
   } = useDevice();
   const connected = connectionStatus === "connected";
+  const coordinatesLabel = Array.isArray(telemetry?.coordinates)
+    ? formatCoords(...telemetry.coordinates)
+    : "Waiting for GPS fix...";
 
   return (
     <div className="space-y-3">
@@ -43,7 +46,7 @@ export default function MapView() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Coordinates</span>
               <span className="text-sm font-medium">
-                {formatCoords(...telemetry.coordinates)}
+                {coordinatesLabel}
               </span>
             </div>
             <div className="flex items-center justify-between">

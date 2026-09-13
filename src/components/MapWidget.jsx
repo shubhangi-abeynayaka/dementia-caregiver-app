@@ -52,7 +52,7 @@ export default function MapWidget({
   const boundaryPoints = (geofenceBoundary || deviceGeofenceBoundary || [])
     .map(toLatLng)
     .filter(Boolean);
-  const isBreached = telemetry?.status === "ALERT";
+  const isBreached = telemetry?.status === "ALERT" || telemetry?.status === "SOS";
   const { isLoaded, loadError } = useJsApiLoader({
     id: "dementia-caregiver-google-maps",
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
