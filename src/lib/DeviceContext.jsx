@@ -87,6 +87,7 @@ export function DeviceProvider({ children }) {
   })
   const [error, setError] = useState(null)
   const previousStatus = useRef(telemetry.status)
+  const isSosLatched = useRef(false)
   const previousConnectionStatus = useRef(connectionStatus)
   const bluetoothDevice = useRef(null)
   const telemetryCharacteristic = useRef(null)
@@ -106,10 +107,15 @@ export function DeviceProvider({ children }) {
     if (previousStatus.current === telemetry.status) return
 
     const [lat, lng] = telemetry.coordinates
-    if (pushNotifications && telemetry.status === 'ALERT' && typeof Notification !== 'undefined') {
-      const notify = () => new Notification('EMERGENCY: Safe Zone Breached!', {
-        body: 'Patient has left the safe geofence boundary.',
-      })
+    if (pushNotifications && ['ALERT', 'SOS'].includes(telemetry.status) && typeof Notification !== 'undefined') {
+      const notify = () => new Notification(
+        telemetry.status === 'SOS' ? 'EMERGENCY: SOS Alert' : 'EMERGENCY: Safe Zone Breached!',
+        {
+          body: telemetry.status === 'SOS'
+            ? 'The patient has triggered the SOS alert.'
+            : 'Patient has left the safe geofence boundary.',
+        },
+      )
 
       if (Notification.permission === 'granted') {
         notify()
@@ -120,14 +126,19 @@ export function DeviceProvider({ children }) {
       }
     }
 
+    const isEmergency = telemetry.status === 'ALERT' || telemetry.status === 'SOS'
     setHistoryLogs((currentHistory) => [
       {
         id: Date.now(),
         timestamp: new Date().toLocaleTimeString(),
         date: new Date().toLocaleDateString(),
-        event: telemetry.status === 'ALERT' ? 'Safe Zone Breached' : 'Restored to Safe',
+        event: telemetry.status === 'SOS'
+          ? 'SOS Alert Triggered'
+          : telemetry.status === 'ALERT'
+            ? 'Safe Zone Breached'
+            : 'Restored to Safe',
         coordinates: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-        type: telemetry.status === 'ALERT' ? 'danger' : 'success',
+        type: isEmergency ? 'danger' : 'success',
         status: telemetry.status,
         signalStrength: telemetry.signalStrength,
       },
@@ -246,6 +257,7 @@ export function DeviceProvider({ children }) {
 
     disconnect()
     setConnectionStatus('disconnected')
+    isSosLatched.current = false
     setTelemetry(DEFAULT_TELEMETRY)
   }, [isDemoMode])
 
@@ -284,34 +296,64 @@ export function DeviceProvider({ children }) {
 
   const receiveTelemetry = (payload) => {
     let nextTelemetry = payload
+    const rawString = typeof payload === 'string' ? payload : ''
 
-    if (typeof payload === 'string') {
+    if (rawString) {
       try {
-        nextTelemetry = JSON.parse(payload)
+        nextTelemetry = JSON.parse(rawString)
       } catch {
+        const coordinateMatch = rawString.match(/Lat:\s*([0-9.-]+),\s*Lng:\s*([0-9.-]+)/i)
+        const rssiMatch = rawString.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)
         nextTelemetry = {
-          lat: payload.match(/\bLat(?:itude)?\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-          lng: payload.match(/\b(?:Lng|Lon|Longitude)\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-          rssi: payload.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
-          status: payload,
+          lat: coordinateMatch?.[1],
+          lng: coordinateMatch?.[2],
+          rssi: rssiMatch?.[1],
+          status: rawString,
         }
       }
     }
 
     if (!nextTelemetry || typeof nextTelemetry !== 'object') return
 
+    const [currentLat, currentLng] = telemetry.coordinates
     const lat = Number(nextTelemetry.lat ?? nextTelemetry.coordinates?.[0])
     const lng = Number(nextTelemetry.lng ?? nextTelemetry.coordinates?.[1])
+    const coordinates = Number.isFinite(lat) && Number.isFinite(lng)
+      ? [parseFloat(lat), parseFloat(lng)]
+      : [currentLat, currentLng]
     const rssi = Number(nextTelemetry.rssi)
+    const normalizedPayload = (rawString || String(nextTelemetry.status ?? '')).toUpperCase()
+    const isReset = ['RESET PRESSED', 'SOS ALERT CLEARED', 'CAREGIVER RESET']
+      .some((marker) => normalizedPayload.includes(marker))
+    const isSos = normalizedPayload.includes('EMERGENCY') || normalizedPayload.includes('SOS')
+    let status
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    if (isReset) {
+      isSosLatched.current = false
+      status = 'Safe'
+    } else if (isSos) {
+      isSosLatched.current = true
+      status = 'SOS'
+    } else if (isSosLatched.current) {
+      status = 'SOS'
+    } else {
+      status = normalizeTelemetryStatus(nextTelemetry.status ?? rawString)
+    }
 
     setTelemetry({
       ...nextTelemetry,
-      coordinates: [lat, lng],
-      status: normalizeTelemetryStatus(nextTelemetry.status),
+      coordinates,
+      status,
       ...(Number.isFinite(rssi) && { signalStrength: `${rssi} dBm` }),
     })
+  }
+
+  const clearAlert = () => {
+    isSosLatched.current = false
+    setTelemetry((currentTelemetry) => ({
+      ...currentTelemetry,
+      status: 'Safe',
+    }))
   }
 
   const simulateSafeZoneBreach = () => {
@@ -323,6 +365,7 @@ export function DeviceProvider({ children }) {
   }
 
   const simulateSOS = () => {
+    isSosLatched.current = true
     setTelemetry({
       coordinates: [6.9500, 79.9000],
       status: 'SOS',
@@ -331,7 +374,7 @@ export function DeviceProvider({ children }) {
   }
 
   const resetToSafe = () => {
-    setTelemetry(DEFAULT_TELEMETRY)
+    clearAlert()
   }
 
   const value = useMemo(
@@ -357,6 +400,7 @@ export function DeviceProvider({ children }) {
       clearAllHistory,
       deleteHistoryLog,
       receiveTelemetry,
+      clearAlert,
       simulateSafeZoneBreach,
       simulateSOS,
       resetToSafe,
