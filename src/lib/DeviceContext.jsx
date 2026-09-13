@@ -18,6 +18,18 @@ function isValidBoundary(boundary) {
     ))
 }
 
+function normalizeTelemetryStatus(status) {
+  const normalizedStatus = String(status ?? '').toUpperCase()
+
+  if (normalizedStatus.includes('SOS') || normalizedStatus.includes('EMERGENCY')) {
+    return 'SOS'
+  }
+  if (normalizedStatus.includes('ALERT')) return 'ALERT'
+  if (normalizedStatus.includes('SAFE') || normalizedStatus.includes('WARN')) return 'Safe'
+
+  return 'Safe'
+}
+
 function createEmergencySiren() {
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return () => {}
@@ -187,10 +199,22 @@ export function DeviceProvider({ children }) {
       const service = await server.getPrimaryService(TELEMETRY_SERVICE_UUID)
       const characteristic = await service.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID)
       const handleTelemetry = (event) => {
-        const payload = new TextDecoder().decode(event.target.value)
+        const { value } = event.target
+        const payload = new TextDecoder().decode(value)
 
         try {
-          const parsed = JSON.parse(payload)
+          let parsed
+          try {
+            parsed = JSON.parse(payload)
+          } catch {
+            parsed = {
+              lat: payload.match(/\bLat(?:itude)?\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+              lng: payload.match(/\b(?:Lng|Lon|Longitude)\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+              rssi: payload.match(/\bRSSI\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1],
+              status: payload,
+            }
+          }
+
           const lat = Number(parsed.lat)
           const lng = Number(parsed.lng)
           const rssi = Number(parsed.rssi)
@@ -199,7 +223,7 @@ export function DeviceProvider({ children }) {
 
           receiveTelemetry({
             coordinates: [lat, lng],
-            status: parsed.status === 'ALERT' ? 'ALERT' : 'Safe',
+            status: parsed.status,
             signalStrength: `${rssi} dBm`,
           })
         } catch {
@@ -285,7 +309,10 @@ export function DeviceProvider({ children }) {
   }
 
   const receiveTelemetry = (nextTelemetry) => {
-    setTelemetry(nextTelemetry)
+    setTelemetry({
+      ...nextTelemetry,
+      status: normalizeTelemetryStatus(nextTelemetry.status),
+    })
   }
 
   const simulateSafeZoneBreach = () => {
