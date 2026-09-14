@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 export default function AlertBanner({ status, coordinatesLabel }) {
   return (
     <AnimatePresence>
-      {status === 'ALERT' ? (
+      {status === 'ALERT' || status === 'SOS' ? (
         <motion.div
           key="alert"
           initial={{ opacity: 0, y: -10 }}
@@ -21,7 +21,9 @@ export default function AlertBanner({ status, coordinatesLabel }) {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="font-bold text-lg">Patient outside safe zone!</p>
+              <p className="font-bold text-lg">
+                {status === 'SOS' ? 'SOS emergency active!' : 'Patient outside safe zone!'}
+              </p>
               <p className="text-white/90 text-sm">{coordinatesLabel}</p>
             </div>
           </div>

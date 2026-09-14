@@ -195,8 +195,13 @@ export function useDeviceController() {
 
     if (!next || typeof next !== 'object') return
 
-    // ── Boundary handling ────────────────────────────────────────────────────
     const normalPayload = (raw || String(next.status ?? '')).toUpperCase()
+    const command = String(next.command ?? '').toUpperCase()
+    const isReset = ['RESET', 'CAREGIVER RESET', 'SOS ALERT CLEARED']
+      .some((m) => normalPayload.includes(m))
+    const isSos = command === 'ALARM_ON' || normalPayload.includes('EMERGENCY') || normalPayload.includes('SOS')
+
+    // ── Boundary handling ────────────────────────────────────────────────────
     if (next.device_id) setLocationDeviceId(String(next.device_id))
 
     if (isBoundaryReset) {
@@ -242,10 +247,6 @@ export function useDeviceController() {
     const rssiMatch = String(sigVal ?? '').match(/-?\d+(?:\.\d+)?/)
     const rssi      = rssiMatch ? Number(rssiMatch[0]) : NaN
     const signalStrength = Number.isFinite(rssi) ? `${rssi} dBm` : '-68 dBm'
-
-    const isReset = ['RESET', 'CAREGIVER RESET', 'SOS ALERT CLEARED']
-      .some((m) => normalPayload.includes(m))
-    const isSos = normalPayload.includes('EMERGENCY') || normalPayload.includes('SOS')
 
     let status
     if (isReset) {
@@ -480,9 +481,17 @@ export function useDeviceController() {
     try { localStorage.setItem('orbitcare_mqtt_broker_url', next) } catch { /* noop */ }
   }, [])
 
-  const clearAlert = useCallback(() => {
+  const clearAlert = useCallback(async () => {
     isSosLatched.current = false
     setTelemetry((t) => ({ ...t, status: 'Safe' }))
+
+    try {
+      const res = await apiService.request('/api/signal/reset', { method: 'POST' })
+      if (!res.ok) throw new Error(`Signal reset failed: ${res.status}`)
+    } catch (err) {
+      console.error('[useDeviceController] clearAlert reset failed:', err)
+      setError(err)
+    }
   }, [])
 
   const clearAllHistory = useCallback(async () => {

@@ -16,8 +16,8 @@ let lastSavedLng = null;
 let lastSavedTime = null;
 /** @type {string | null} */
 let lastSavedStatus = null;
-/** @type {string | null} */
-let lastTelemetryStatus = null;
+/** @type {Map<string | null, string>} */
+const lastTelemetryStatusByDevice = new Map();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,36 @@ function normaliseBoundaryPayload(data) {
   return isValidPolygon(points) ? points : null;
 }
 
+/**
+ * Normalize an `orbitcare/signal` payload into the application signal shape.
+ * @param {unknown} data
+ * @returns {{device_id: string | null, status: string, lat?: number, lng?: number} | null}
+ */
+function normaliseSignalPayload(data) {
+  if (!data || typeof data !== 'object') return null;
+
+  const command = String(data.command ?? '').toUpperCase();
+  const status = String(data.status ?? '').toUpperCase();
+  const deviceId = data.device_id ?? null;
+
+  if (command === 'ALARM_ON' || status === 'SOS') {
+    const lat = Number(data.lat ?? data.latitude);
+    const lng = Number(data.lng ?? data.longitude);
+    return {
+      device_id: deviceId,
+      status: 'SOS',
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+    };
+  }
+
+  if (command === 'RESET' || status === 'RESET') {
+    return { device_id: deviceId, status: 'RESET' };
+  }
+
+  return null;
+}
+
 // ── Public handlers ───────────────────────────────────────────────────────────
 
 /**
@@ -78,20 +108,29 @@ async function processLocationMessage(data) {
     Number.isFinite(lng) &&
     lat !== 0 &&
     lng !== 0;
-  const breached = hasCoordinates && geofenceService.checkBreach(lat, lng, data.device_id ?? null);
-  const status = breached ? 'ALERT' : (data.status ?? null);
+  const deviceId = data.device_id ?? null;
+  const rawStatus = String(data.status ?? '').toUpperCase();
+  const command = String(data.command ?? '').toUpperCase();
+  const isExplicitSos = rawStatus === 'SOS' || command === 'ALARM_ON';
+  const breached = hasCoordinates && geofenceService.checkBreach(lat, lng, deviceId);
+  const status = isExplicitSos
+    ? 'SOS'
+    : breached || rawStatus === 'ALERT' || rawStatus === 'ALERT_OUTSIDE'
+      ? 'ALERT'
+      : hasCoordinates
+        ? 'SAFE'
+        : (data.status ?? null);
   const enrichedData = { ...data, status };
 
   const normalisedStatus = String(status ?? '').toUpperCase();
-  const statusChanged = normalisedStatus !== lastTelemetryStatus;
-  const isIncidentStatus = ['ALERT', 'SOS'].includes(normalisedStatus);
-  const enteredIncidentStatus = breached || (statusChanged && isIncidentStatus);
+  const statusChanged = normalisedStatus !== lastTelemetryStatusByDevice.get(deviceId);
+  const enteredIncidentStatus = statusChanged && ['ALERT', 'SOS'].includes(normalisedStatus);
 
   // ── Incident log ───────────────────────────────────────────────────────────
   if (enteredIncidentStatus) {
     incidentRepository
       .insertIncident(
-        data.device_id ?? null,
+        deviceId,
         normalisedStatus,
         hasCoordinates ? lat : null,
         hasCoordinates ? lng : null,
@@ -115,7 +154,7 @@ async function processLocationMessage(data) {
 
   if (shouldSave) {
     telemetryRepository
-      .insertTelemetry(data.device_id ?? null, lat, lng, status, data.rssi ?? null)
+      .insertTelemetry(deviceId, lat, lng, status, data.rssi ?? null)
       .then(() => {
         lastSavedLat = lat;
         lastSavedLng = lng;
@@ -125,7 +164,7 @@ async function processLocationMessage(data) {
       .catch((err) => console.error('[telemetryService] Failed to save telemetry:', err));
   }
 
-  lastTelemetryStatus = normalisedStatus;
+  lastTelemetryStatusByDevice.set(deviceId, normalisedStatus);
 
   // ── Broadcast ──────────────────────────────────────────────────────────────
   socketConfig.broadcast('telemetry', enrichedData);
@@ -149,6 +188,30 @@ function processBoundaryMessage(data) {
 }
 
 /**
+ * Process an `orbitcare/signal` MQTT message.
+ * @param {unknown} data
+ */
+async function processSignalMessage(data) {
+  const normalized = normaliseSignalPayload(data);
+  if (!normalized) return;
+
+  if (normalized.status === 'SOS') {
+    try {
+      await incidentRepository.insertIncident(
+        normalized.device_id,
+        normalized.status,
+        normalized.lat,
+        normalized.lng,
+      );
+    } catch (err) {
+      console.error('[telemetryService] Failed to log signal incident:', err);
+    }
+  }
+
+  socketConfig.broadcast('telemetry', normalized);
+}
+
+/**
  * Dispatch an MQTT message to the correct handler based on topic.
  * @param {string} topic
  * @param {unknown} data
@@ -166,8 +229,17 @@ function handleMqttMessage(topic, data) {
     return;
   }
 
-  // orbitcare/signal or unknown — forward as-is
-  socketConfig.broadcast('telemetry', data);
+  if (topic === 'orbitcare/signal') {
+    processSignalMessage(data).catch((err) =>
+      console.error('[telemetryService] Unhandled error in processSignalMessage:', err),
+    );
+  }
 }
 
-module.exports = { handleMqttMessage, processLocationMessage, processBoundaryMessage };
+module.exports = {
+  handleMqttMessage,
+  processLocationMessage,
+  processBoundaryMessage,
+  processSignalMessage,
+  normaliseSignalPayload,
+};
