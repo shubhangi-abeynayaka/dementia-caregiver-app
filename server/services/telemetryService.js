@@ -59,6 +59,40 @@ function normaliseBoundaryPayload(data) {
   return isValidPolygon(points) ? points : null;
 }
 
+/**
+ * Normalize an `orbitcare/signal` payload into the application signal shape.
+ *
+ * Supported commands (checked against both `command` and `status` fields):
+ *   ALARM_ON  — patient is outside the boundary, alarm should sound
+ *   ALARM_OFF — patient is back inside the boundary, alarm should stop
+ *   SOS       — emergency/SOS button was pressed
+ *   RESET     — caregiver reset / mute command
+ *
+ * @param {unknown} data
+ * @returns {{device_id: string | null, status: string, lat?: number | null, lng?: number | null} | null}
+ */
+function normaliseSignalPayload(data) {
+  if (!data || typeof data !== 'object') return null;
+
+  const command  = String(data.command  ?? '').toUpperCase().trim();
+  const status   = String(data.status   ?? '').toUpperCase().trim();
+  const deviceId = data.device_id ?? null;
+
+  const lat = Number(data.lat ?? data.latitude);
+  const lng = Number(data.lng ?? data.longitude);
+  const coords = {
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+  };
+
+  if (command === 'ALARM_ON'  || status === 'ALARM_ON')  return { device_id: deviceId, status: 'ALARM_ON',  ...coords };
+  if (command === 'ALARM_OFF' || status === 'ALARM_OFF') return { device_id: deviceId, status: 'ALARM_OFF' };
+  if (command === 'SOS'       || status === 'SOS')       return { device_id: deviceId, status: 'SOS',       ...coords };
+  if (command === 'RESET'     || status === 'RESET')     return { device_id: deviceId, status: 'RESET' };
+
+  return null;
+}
+
 // ── Public handlers ───────────────────────────────────────────────────────────
 
 /**
@@ -149,6 +183,48 @@ function processBoundaryMessage(data) {
 }
 
 /**
+ * Process an `orbitcare/signal` MQTT message.
+ *
+ * - Logs an incident for ALARM_ON and SOS events.
+ * - Broadcasts on the dedicated `signal` Socket.IO event so the frontend
+ *   can drive an independent alarm state machine without conflating with
+ *   location-based `telemetry` events.
+ * - Also mirrors onto `telemetry` for backwards-compatibility.
+ *
+ * @param {unknown} data
+ */
+async function processSignalMessage(data) {
+  const normalized = normaliseSignalPayload(data);
+  if (!normalized) {
+    console.warn('[telemetryService] Unrecognised orbitcare/signal payload:', data);
+    return;
+  }
+
+  console.log(`[telemetryService] Signal received: ${normalized.status}`, normalized);
+
+  const incidentStatuses = ['ALARM_ON', 'SOS'];
+  if (incidentStatuses.includes(normalized.status)) {
+    try {
+      await incidentRepository.insertIncident(
+        normalized.device_id,
+        normalized.status,
+        normalized.lat ?? null,
+        normalized.lng ?? null,
+      );
+    } catch (err) {
+      console.error('[telemetryService] Failed to log signal incident:', err);
+    }
+  }
+
+  // Broadcast on a dedicated `signal` event so the frontend alarm state
+  // machine can react independently of location telemetry.
+  socketConfig.broadcast('signal', normalized);
+
+  // Also mirror onto `telemetry` for backwards-compatibility.
+  socketConfig.broadcast('telemetry', normalized);
+}
+
+/**
  * Dispatch an MQTT message to the correct handler based on topic.
  * @param {string} topic
  * @param {unknown} data
@@ -166,8 +242,20 @@ function handleMqttMessage(topic, data) {
     return;
   }
 
-  // orbitcare/signal or unknown — forward as-is
-  socketConfig.broadcast('telemetry', data);
+  if (topic === 'orbitcare/signal') {
+    processSignalMessage(data).catch((err) =>
+      console.error('[telemetryService] Unhandled error in processSignalMessage:', err),
+    );
+    return;
+  }
+
+  console.warn(`[telemetryService] Unknown topic: ${topic}`);
 }
 
-module.exports = { handleMqttMessage, processLocationMessage, processBoundaryMessage };
+module.exports = {
+  handleMqttMessage,
+  processLocationMessage,
+  processBoundaryMessage,
+  processSignalMessage,
+  normaliseSignalPayload,
+};
