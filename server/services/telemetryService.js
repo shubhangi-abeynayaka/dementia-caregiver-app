@@ -47,7 +47,14 @@ function normaliseBoundaryPayload(data) {
       }
       return null;
     })
-    .filter((p) => p && p.every(Number.isFinite));
+    .filter(
+      (p) =>
+        p &&
+        Number.isFinite(p[0]) &&
+        Number.isFinite(p[1]) &&
+        p[0] !== 0 &&
+        p[1] !== 0,
+    );
 
   return isValidPolygon(points) ? points : null;
 }
@@ -66,7 +73,11 @@ async function processLocationMessage(data) {
 
   const lat = Number(data.lat ?? data.latitude);
   const lng = Number(data.lng ?? data.longitude);
-  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng);
+  const hasCoordinates =
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat !== 0 &&
+    lng !== 0;
   const breached = hasCoordinates && geofenceService.checkBreach(lat, lng, data.device_id ?? null);
   const status = breached ? 'ALERT' : (data.status ?? null);
   const enrichedData = { ...data, status };

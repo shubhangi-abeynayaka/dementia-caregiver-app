@@ -135,7 +135,7 @@ export function useDeviceController() {
     if (incoming.length === 0) return
 
     setGeofenceBoundary((current) => {
-      const next = [...current]
+      const next = current.map(normalizeBoundaryPoint).filter(Boolean)
       incoming.forEach((p) => {
         if (!next.find(([a, b]) => a === p[0] && b === p[1])) next.push(p)
       })
@@ -145,20 +145,25 @@ export function useDeviceController() {
   }, [])
 
   const updateGeofence = useCallback((coordinates) => {
-    if (!isValidBoundary(coordinates)) return
+    const cleaned = Array.isArray(coordinates)
+      ? coordinates.map(normalizeBoundaryPoint).filter(Boolean)
+      : []
+    if (!isValidBoundary(cleaned)) return
 
     apiService
       .request('/api/geofence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: GEOFENCE_DEVICE_ID, boundary: coordinates }),
+        body: JSON.stringify({ device_id: GEOFENCE_DEVICE_ID, boundary: cleaned }),
       })
       .then((res) => {
         if (!res.ok) throw new Error(`Geofence save failed: ${res.status}`)
         return res.json()
       })
       .then((payload) => {
-        const saved = isValidBoundary(payload?.boundary) ? payload.boundary : coordinates
+        const saved = isValidBoundary(payload?.boundary)
+          ? payload.boundary.map(normalizeBoundaryPoint).filter(Boolean)
+          : cleaned
         setGeofenceBoundary(saved)
         setBoundaryWarning(false)
         try { localStorage.setItem('orbitcare_geofence', JSON.stringify(saved)) } catch { /* noop */ }
@@ -201,9 +206,10 @@ export function useDeviceController() {
       const pts = coordMatch
         ? [[Number(coordMatch[1]), Number(coordMatch[2])]]
         : extractBoundaryPoints(next, raw)
-      if (pts.length > 0) {
-        handleHardwareBoundaryStream(pts)
-        pts.forEach((p) => console.log('📍 Added boundary point:', p))
+      const validPts = pts.map(normalizeBoundaryPoint).filter(Boolean)
+      if (validPts.length > 0) {
+        handleHardwareBoundaryStream(validPts)
+        validPts.forEach((p) => console.log('📍 Added boundary point:', p))
       }
     } else if (normalPayload.includes('WARN: BOUNDARY NOT SET')) {
       setGeofenceBoundary([])
@@ -222,10 +228,15 @@ export function useDeviceController() {
     const [curLat, curLng] = telemetry.coordinates || []
     const lat = Number(next.lat ?? next.coordinates?.[0] ?? locPoint?.latitude)
     const lng = Number(next.lng ?? next.coordinates?.[1] ?? locPoint?.longitude)
-    const coordinates = Number.isFinite(lat) && Number.isFinite(lng)
-      ? [parseFloat(lat), parseFloat(lng)]
-      : [curLat, curLng]
-    const hasCoords = Number.isFinite(coordinates[0]) && Number.isFinite(coordinates[1])
+    const coordinates =
+      Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+        ? [parseFloat(lat), parseFloat(lng)]
+        : [curLat, curLng]
+    const hasCoords =
+      Number.isFinite(coordinates[0]) &&
+      Number.isFinite(coordinates[1]) &&
+      coordinates[0] !== 0 &&
+      coordinates[1] !== 0
 
     const sigVal    = next.rssi ?? locPoint?.Signal
     const rssiMatch = String(sigVal ?? '').match(/-?\d+(?:\.\d+)?/)

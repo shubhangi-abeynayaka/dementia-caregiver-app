@@ -15,17 +15,17 @@ export function isValidBoundary(boundary) {
   return (
     Array.isArray(boundary) &&
     boundary.length >= 3 &&
-    boundary.every(
-      (point) =>
-        Array.isArray(point) &&
-        point.length === 2 &&
-        point.every((c) => Number.isFinite(c)),
-    )
+    boundary.every((point) => {
+      if (!Array.isArray(point) || point.length < 2) return false
+      const lat = Number(point[0])
+      const lng = Number(point[1])
+      return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+    })
   )
 }
 
 /**
- * Normalise a raw [lat, lng] pair, returning null for invalid input.
+ * Normalise a raw [lat, lng] pair, returning null for invalid input or zero values.
  * @param {unknown} point
  * @returns {[number, number] | null}
  */
@@ -33,16 +33,19 @@ export function normalizeBoundaryPoint(point) {
   if (!Array.isArray(point) || point.length < 2) return null
   const lat = Number(point[0])
   const lng = Number(point[1])
-  return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+    ? [lat, lng]
+    : null
 }
 
 /**
  * Compute the convex hull (maximum-area boundary) of a set of points.
- * Uses the Andrew monotone chain algorithm.
+ * Uses the Andrew monotone chain algorithm. Neglects points with 0 value.
  * @param {[number, number][]} points
  * @returns {[number, number][]}
  */
 export function createMaximumAreaBoundary(points) {
+  if (!Array.isArray(points)) return []
   const unique = points
     .map(normalizeBoundaryPoint)
     .filter(Boolean)

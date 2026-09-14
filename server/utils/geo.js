@@ -14,7 +14,9 @@ function isValidPolygon(polygon) {
         Array.isArray(point) &&
         point.length >= 2 &&
         Number.isFinite(Number(point[0])) &&
-        Number.isFinite(Number(point[1])),
+        Number.isFinite(Number(point[1])) &&
+        Number(point[0]) !== 0 &&
+        Number(point[1]) !== 0,
     )
   );
 }
@@ -26,7 +28,13 @@ function isValidPolygon(polygon) {
  * @returns {boolean}
  */
 function isPointInPolygon(point, polygon) {
-  if (!Array.isArray(point) || point.length < 2 || !isValidPolygon(polygon)) {
+  if (
+    !Array.isArray(point) ||
+    point.length < 2 ||
+    Number(point[0]) === 0 ||
+    Number(point[1]) === 0 ||
+    !isValidPolygon(polygon)
+  ) {
     return false;
   }
 

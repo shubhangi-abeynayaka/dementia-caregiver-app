@@ -46,11 +46,23 @@ function getActiveGeofence() {
  * @throws {Error} If boundary is invalid
  */
 async function updateGeofence(deviceId, boundary) {
-  if (!isValidPolygon(boundary)) {
-    throw new Error('boundary must contain at least 3 valid [lat, lng] points');
+  const filtered = Array.isArray(boundary)
+    ? boundary.filter(
+        (p) =>
+          Array.isArray(p) &&
+          p.length >= 2 &&
+          Number.isFinite(Number(p[0])) &&
+          Number.isFinite(Number(p[1])) &&
+          Number(p[0]) !== 0 &&
+          Number(p[1]) !== 0,
+      )
+    : [];
+
+  if (!isValidPolygon(filtered)) {
+    throw new Error('boundary must contain at least 3 valid non-zero [lat, lng] points');
   }
 
-  const polygon = boundary.map(([lat, lng]) => [Number(lat), Number(lng)]);
+  const polygon = filtered.map(([lat, lng]) => [Number(lat), Number(lng)]);
   await geofenceRepository.upsertGeofence(deviceId, JSON.stringify(polygon));
   activeGeofence = { device_id: deviceId, polygon };
   return polygon;
@@ -63,7 +75,21 @@ async function updateGeofence(deviceId, boundary) {
  * @param {[number, number][]} polygon
  */
 function setActiveGeofence(deviceId, polygon) {
-  activeGeofence = { device_id: deviceId, polygon };
+  const filtered = Array.isArray(polygon)
+    ? polygon.filter(
+        (p) =>
+          Array.isArray(p) &&
+          p.length >= 2 &&
+          Number.isFinite(Number(p[0])) &&
+          Number.isFinite(Number(p[1])) &&
+          Number(p[0]) !== 0 &&
+          Number(p[1]) !== 0,
+      )
+    : [];
+
+  if (isValidPolygon(filtered)) {
+    activeGeofence = { device_id: deviceId, polygon: filtered };
+  }
 }
 
 /**
@@ -75,7 +101,7 @@ function setActiveGeofence(deviceId, polygon) {
  * @returns {boolean}  true = breached (outside fence)
  */
 function checkBreach(lat, lng, deviceId) {
-  if (!activeGeofence) return false;
+  if (!activeGeofence || lat === 0 || lng === 0) return false;
 
   const deviceMatches =
     !activeGeofence.device_id || activeGeofence.device_id === deviceId;

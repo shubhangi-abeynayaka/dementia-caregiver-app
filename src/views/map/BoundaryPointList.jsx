@@ -12,7 +12,11 @@ import { formatCoords } from '@/lib/geofence'
  * }} props
  */
 export default function BoundaryPointList({ geofenceBoundary, boundaryDeviceId }) {
-  if (geofenceBoundary.length === 0) {
+  const validPoints = (geofenceBoundary || []).filter(
+    ([lat, lng]) => Number(lat) !== 0 && Number(lng) !== 0,
+  )
+
+  if (validPoints.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
         No boundary points received yet.
@@ -22,7 +26,7 @@ export default function BoundaryPointList({ geofenceBoundary, boundaryDeviceId }
 
   return (
     <div className="grid grid-cols-2 gap-2">
-      {geofenceBoundary.map(([lat, lng], index) => (
+      {validPoints.map(([lat, lng], index) => (
         <div
           key={`boundary-point-${index}`}
           className="rounded-xl border border-border bg-secondary/40 px-3 py-2"
