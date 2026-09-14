@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import mqtt from 'mqtt'
+import { io } from 'socket.io-client'
 import { DEFAULT_BOUNDARY } from '@/lib/geofence'
 
 const DeviceContext = createContext(null)
@@ -13,7 +13,43 @@ const HARDWARE_WAITING_TELEMETRY = {
   status: 'Waiting for GPS Fix...',
   signalStrength: null,
 }
-const DEFAULT_MQTT_BROKER_URL = 'ws://10.45.32.10:9001'
+const DEFAULT_MQTT_BROKER_URL = 'mqtt://broker.hivemq.com:1883'
+const CONFIGURED_BACKEND_URL = String(import.meta.env.VITE_BACKEND_URL || '').trim().replace(/\/$/, '')
+const BACKEND_URL_CANDIDATES = CONFIGURED_BACKEND_URL
+  ? [CONFIGURED_BACKEND_URL]
+  : ['http://localhost:5000', 'http://localhost:5001']
+const GEOFENCE_DEVICE_ID = 'patient-device-01'
+
+function formatHistoricalLog(record) {
+  const status = normalizeTelemetryStatus(record.status)
+  const createdAt = new Date(`${String(record.created_at).replace(' ', 'T')}Z`)
+  const isEmergency = status === 'ALERT' || status === 'SOS'
+
+  return {
+    id: record.id,
+    timestamp: Number.isNaN(createdAt.getTime())
+      ? record.created_at
+      : createdAt.toLocaleTimeString(),
+    date: Number.isNaN(createdAt.getTime())
+      ? ''
+      : createdAt.toLocaleDateString(),
+    event: status === 'SOS'
+      ? 'SOS Alert Triggered'
+      : status === 'ALERT'
+        ? 'Safe Zone Breached'
+        : 'Location Recorded',
+    coordinates: Number.isFinite(Number(record.lat)) && Number.isFinite(Number(record.lng))
+      ? `${Number(record.lat).toFixed(4)}, ${Number(record.lng).toFixed(4)}`
+      : 'Waiting for GPS Fix...',
+    type: isEmergency ? 'danger' : 'success',
+    status,
+    signalStrength: record.rssi == null ? null : `${record.rssi} dBm`,
+    lat: record.lat,
+    lng: record.lng,
+    rssi: record.rssi,
+    device_id: record.device_id,
+  }
+}
 
 function isValidBoundary(boundary) {
   return Array.isArray(boundary)
@@ -193,8 +229,84 @@ export function DeviceProvider({ children }) {
   const previousStatus = useRef(telemetry.status)
   const isSosLatched = useRef(false)
   const previousConnectionStatus = useRef(connectionStatus)
-  const mqttClientRef = useRef(null)
+  const socketRef = useRef(null)
   const receiveTelemetryRef = useRef(null)
+  const backendUrlRef = useRef(CONFIGURED_BACKEND_URL || null)
+
+  const setActiveBackendUrl = (backendUrl) => {
+    backendUrlRef.current = backendUrl
+  }
+
+  const requestBackend = async (path, options = {}) => {
+    const candidateUrls = [
+      backendUrlRef.current,
+      ...BACKEND_URL_CANDIDATES,
+    ].filter((url, index, urls) => url && urls.indexOf(url) === index)
+    let lastError
+
+    for (const backendUrl of candidateUrls) {
+      try {
+        const response = await fetch(`${backendUrl}${path}`, options)
+        setActiveBackendUrl(backendUrl)
+        return response
+      } catch (requestError) {
+        if (requestError.name === 'AbortError') throw requestError
+        lastError = requestError
+      }
+    }
+
+    throw lastError || new Error('Unable to connect to backend')
+  }
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    requestBackend('/api/history', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`History request failed: ${response.status}`)
+        return response.json()
+      })
+      .then((records) => {
+        if (Array.isArray(records)) setHistoryLogs(records.map(formatHistoricalLog))
+      })
+      .catch((fetchError) => {
+        if (fetchError.name !== 'AbortError') {
+          console.error('Failed to load telemetry history:', fetchError)
+        }
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    requestBackend('/api/geofence', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Geofence request failed: ${response.status}`)
+        return response.json()
+      })
+      .then((payload) => {
+        if (isValidBoundary(payload?.boundary)) {
+          setGeofenceBoundary(payload.boundary)
+          return
+        }
+
+        try {
+          const storedBoundary = localStorage.getItem('orbitcare_geofence')
+          const parsedBoundary = storedBoundary ? JSON.parse(storedBoundary) : null
+          if (isValidBoundary(parsedBoundary)) setGeofenceBoundary(parsedBoundary)
+        } catch {
+        }
+      })
+      .catch((fetchError) => {
+        if (fetchError.name !== 'AbortError') {
+          console.error('Failed to load geofence:', fetchError)
+        }
+      })
+
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     if (previousStatus.current === telemetry.status) return
@@ -304,12 +416,11 @@ export function DeviceProvider({ children }) {
   }, [isDemoMode])
 
   const connect = () => {
-    mqttClientRef.current?.reconnect()
+    socketRef.current?.connect()
   }
 
   const disconnect = () => {
-    mqttClientRef.current?.end()
-    mqttClientRef.current = null
+    socketRef.current?.disconnect()
     setConnectionStatus('disconnected')
   }
 
@@ -351,12 +462,32 @@ export function DeviceProvider({ children }) {
   const updateGeofence = (coordinates) => {
     if (!isValidBoundary(coordinates)) return
 
-    setGeofenceBoundary(coordinates)
-    setBoundaryWarning(false)
-    try {
-      localStorage.setItem('orbitcare_geofence', JSON.stringify(coordinates))
-    } catch {
-    }
+    requestBackend('/api/geofence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        device_id: GEOFENCE_DEVICE_ID,
+        boundary: coordinates,
+      }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Geofence save request failed: ${response.status}`)
+        return response.json()
+      })
+      .then((payload) => {
+        const savedBoundary = isValidBoundary(payload?.boundary) ? payload.boundary : coordinates
+
+        setGeofenceBoundary(savedBoundary)
+        setBoundaryWarning(false)
+        try {
+          localStorage.setItem('orbitcare_geofence', JSON.stringify(savedBoundary))
+        } catch {
+        }
+      })
+      .catch((saveError) => {
+        console.error('Failed to save geofence:', saveError)
+        setError(saveError)
+      })
   }
 
   const handleHardwareBoundaryStream = (newCoordinatesArray) => {
@@ -380,12 +511,17 @@ export function DeviceProvider({ children }) {
     setBoundaryWarning(false)
   }
 
-  const clearAllHistory = () => {
+  const clearAllHistory = async () => {
     try {
+      const response = await requestBackend('/api/history/clear', { method: 'POST' })
+      if (!response.ok) throw new Error(`History clear request failed: ${response.status}`)
+
       localStorage.removeItem('orbitcare_history')
-    } catch {
+      setHistoryLogs([])
+    } catch (clearError) {
+      console.error('Failed to clear telemetry history:', clearError)
+      setError(clearError)
     }
-    setHistoryLogs([])
   }
 
   const deleteHistoryLog = (id) => {
@@ -517,57 +653,56 @@ export function DeviceProvider({ children }) {
   useEffect(() => {
     if (isDemoMode) return undefined
 
-    const brokerUrl = mqttBrokerUrl
-    const topics = ['orbitcare/boundary', 'orbitcare/location', 'orbitcare/signal']
     setConnectionStatus('searching')
     setError(null)
 
-    const client = mqtt.connect(brokerUrl, {
-      reconnectPeriod: 3000,
-      connectTimeout: 10000,
-    })
-    mqttClientRef.current = client
+    let isDisposed = false
+    let activeSocket = null
 
-    client.on('connect', () => {
-      client.subscribe(topics, (subscribeError) => {
-        if (subscribeError) {
-          setError(`MQTT subscription failed: ${subscribeError.message}`)
-          return
-        }
+    const connectToBackend = (candidateIndex) => {
+      if (isDisposed) return
+
+      const backendUrl = BACKEND_URL_CANDIDATES[candidateIndex]
+      const socket = io(backendUrl, {
+        reconnection: false,
+      })
+      activeSocket = socket
+      socketRef.current = socket
+
+      socket.on('connect', () => {
+        setActiveBackendUrl(backendUrl)
         setConnectionStatus('connected')
       })
-    })
-    client.on('message', (topic, message) => {
-      const rawPayload = message.toString()
-      if (topic === 'orbitcare/location') {
-        receiveTelemetryRef.current?.(rawPayload)
-        return
-      }
+      socket.on('telemetry', (payload) => {
+        receiveTelemetryRef.current?.(payload)
+      })
+      socket.on('disconnect', () => {
+        setConnectionStatus('disconnected')
+      })
+      socket.on('connect_error', (socketError) => {
+        socket.disconnect()
+        if (!isDisposed && candidateIndex < BACKEND_URL_CANDIDATES.length - 1) {
+          connectToBackend(candidateIndex + 1)
+          return
+        }
 
-      if (topic === 'orbitcare/boundary') {
-        receiveBoundarySnapshot(rawPayload)
-        return
-      }
+        setConnectionStatus('disconnected')
+        setError(`Unable to connect to backend at ${backendUrl}: ${socketError.message}`)
+      })
+    }
 
-      if (topic === 'orbitcare/signal') {
-        const signalMatch = rawPayload.match(/-?\d+(?:\.\d+)?/)
-        const signalStrength = signalMatch ? `${Number(signalMatch[0])} dBm` : rawPayload
-        setTelemetry((currentTelemetry) => ({ ...currentTelemetry, signalStrength }))
-      }
-    })
-    client.on('error', () => {
-      setConnectionStatus('disconnected')
-      setError(`Unable to connect to MQTT broker at ${brokerUrl}`)
-    })
-    client.on('close', () => {
-      setConnectionStatus('disconnected')
-    })
+    connectToBackend(0)
 
     return () => {
-      client.end(true)
-      if (mqttClientRef.current === client) mqttClientRef.current = null
+      isDisposed = true
+      activeSocket?.off('connect')
+      activeSocket?.off('telemetry')
+      activeSocket?.off('disconnect')
+      activeSocket?.off('connect_error')
+      activeSocket?.disconnect()
+      if (socketRef.current === activeSocket) socketRef.current = null
     }
-  }, [isDemoMode, mqttBrokerUrl])
+  }, [isDemoMode])
 
   const updateMqttBrokerUrl = (nextUrl) => {
     const normalizedUrl = String(nextUrl || '').trim()
