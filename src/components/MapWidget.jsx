@@ -35,7 +35,9 @@ function toLatLng(point) {
   if (!Array.isArray(point) || point.length < 2) return null;
   const lat = Number(point[0]);
   const lng = Number(point[1]);
-  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+    ? { lat, lng }
+    : null;
 }
 
 export default function MapWidget({
