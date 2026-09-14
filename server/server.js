@@ -374,7 +374,7 @@ mqttClient.on('message', (topic, message) => {
   if (topic === 'orbitcare/boundary' && data && typeof data === 'object') {
     const boundary = Array.isArray(data)
       ? data
-      : data.boundary;
+        : (data.boundary ?? data.points);
     const normalizedBoundary = Array.isArray(boundary)
       ? boundary.map((point) => {
         if (Array.isArray(point)) {
