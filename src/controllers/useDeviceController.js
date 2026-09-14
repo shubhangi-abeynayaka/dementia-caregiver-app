@@ -107,6 +107,9 @@ export function useDeviceController() {
     }
   })
   const [error, setError] = useState(null)
+  // Alarm state driven by orbitcare/signal MQTT messages
+  // 'idle' | 'ALARM_ON' | 'ALARM_OFF' | 'SOS'
+  const [alarmState, setAlarmState] = useState('idle')
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const previousStatus         = useRef(telemetry.status)
@@ -288,6 +291,42 @@ export function useDeviceController() {
 
   receiveTelemetryRef.current = receiveTelemetry
 
+  // ── Alarm signal handling ──────────────────────────────────────────────────
+
+  /**
+   * Receive and apply an orbitcare/signal command payload.
+   * Transitions alarmState based on payload.status.
+   * @param {unknown} payload
+   */
+  const receiveSignal = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return
+    const status = String(payload.status ?? '').toUpperCase()
+    if (['ALARM_ON', 'ALARM_OFF', 'SOS', 'RESET'].includes(status)) {
+      setAlarmState(status === 'RESET' ? 'idle' : status)
+    }
+  }, [])
+
+  const receiveSignalRef = useRef(receiveSignal)
+  receiveSignalRef.current = receiveSignal
+
+  /**
+   * Send a RESET command via the backend REST API, which publishes it to
+   * orbitcare/signal. Also immediately clears the local alarm state.
+   */
+  const sendReset = useCallback(async (deviceId = null) => {
+    setAlarmState('idle')
+    try {
+      const res = await apiService.request('/api/signal/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: deviceId }),
+      })
+      if (!res.ok) console.error('[useDeviceController] sendReset failed:', res.status)
+    } catch (err) {
+      console.error('[useDeviceController] sendReset error:', err)
+    }
+  }, [])
+
   // ── Socket connection ──────────────────────────────────────────────────────
 
   const disconnect = useCallback(() => {
@@ -313,6 +352,9 @@ export function useDeviceController() {
       },
       onTelemetry: (payload) => {
         receiveTelemetryRef.current?.(payload)
+      },
+      onSignal: (payload) => {
+        receiveSignalRef.current?.(payload)
       },
       onDisconnect: () => setConnectionStatus('disconnected'),
       onConnectError: (err, url) => {
@@ -534,6 +576,7 @@ export function useDeviceController() {
       geofencePoints: geofenceBoundary.map(([lat, lng]) => ({ lat, lng })),
       historyLogs,
       error,
+      alarmState,
       connect,
       disconnect,
       toggleDemoMode,
@@ -543,7 +586,9 @@ export function useDeviceController() {
       deleteHistoryLog,
       receiveTelemetry,
       receiveBoundarySnapshot,
+      receiveSignal,
       clearAlert,
+      sendReset,
       simulateSafeZoneBreach,
       simulateSOS,
       resetToSafe,
@@ -552,10 +597,11 @@ export function useDeviceController() {
       connectionStatus, isDemoMode, pushNotifications, audibleAlarm,
       mqttBrokerUrl, telemetry, geofenceBoundary, boundaryWarning,
       boundaryDeviceId, locationDeviceId, historyLogs, error,
-      connect, disconnect, toggleDemoMode, updateGeofence,
+      alarmState, connect, disconnect, toggleDemoMode, updateGeofence,
       handleHardwareBoundaryStream, clearAllHistory, deleteHistoryLog,
-      receiveTelemetry, receiveBoundarySnapshot, clearAlert,
-      simulateSafeZoneBreach, simulateSOS, resetToSafe, updateMqttBrokerUrl,
+      receiveTelemetry, receiveBoundarySnapshot, receiveSignal,
+      clearAlert, sendReset, simulateSafeZoneBreach, simulateSOS,
+      resetToSafe, updateMqttBrokerUrl,
     ],
   )
 }

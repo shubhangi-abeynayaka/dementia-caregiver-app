@@ -1,5 +1,5 @@
 /**
- * @fileoverview AlertBanner — animated ALERT / Safe status banner.
+ * @fileoverview AlertBanner — animated ALERT / SOS / Safe status banner.
  * Pure presentational component — driven entirely by props.
  */
 
@@ -11,7 +11,22 @@ import { motion, AnimatePresence } from 'framer-motion'
 export default function AlertBanner({ status, coordinatesLabel }) {
   return (
     <AnimatePresence>
-      {status === 'ALERT' ? (
+      {status === 'SOS' ? (
+        <motion.div
+          key="sos"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="rounded-2xl bg-gradient-to-r from-red-700 to-purple-800 p-4 text-white shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-lg">🚨 SOS Emergency!</p>
+              <p className="text-white/90 text-sm">{coordinatesLabel}</p>
+            </div>
+          </div>
+        </motion.div>
+      ) : status === 'ALERT' ? (
         <motion.div
           key="alert"
           initial={{ opacity: 0, y: -10 }}
@@ -40,3 +55,4 @@ export default function AlertBanner({ status, coordinatesLabel }) {
     </AnimatePresence>
   )
 }
+

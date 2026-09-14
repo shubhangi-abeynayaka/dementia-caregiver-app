@@ -9,6 +9,7 @@ import { BACKEND_URL_CANDIDATES } from '@/models/device'
 /**
  * @typedef {object} SocketHandlers
  * @property {(payload: unknown) => void} onTelemetry
+ * @property {(payload: unknown) => void} [onSignal]
  * @property {() => void} onConnect
  * @property {() => void} onDisconnect
  * @property {(error: Error) => void} onConnectError
@@ -40,6 +41,11 @@ export function createSocketService(handlers) {
 
     socket.on('telemetry', (payload) => {
       handlers.onTelemetry(payload)
+    })
+
+    // Dedicated event for orbitcare/signal commands (ALARM_ON, ALARM_OFF, SOS, RESET)
+    socket.on('signal', (payload) => {
+      handlers.onSignal?.(payload)
     })
 
     socket.on('disconnect', () => {
@@ -77,6 +83,7 @@ export function createSocketService(handlers) {
       if (activeSocket) {
         activeSocket.off('connect')
         activeSocket.off('telemetry')
+        activeSocket.off('signal')
         activeSocket.off('disconnect')
         activeSocket.off('connect_error')
         activeSocket.disconnect()
@@ -85,3 +92,4 @@ export function createSocketService(handlers) {
     },
   }
 }
+

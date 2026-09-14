@@ -11,6 +11,7 @@ import ConnectionBanner  from '@/views/dashboard/ConnectionBanner'
 import DeviceStatusCard  from '@/views/dashboard/DeviceStatusCard'
 import AlertBanner       from '@/views/dashboard/AlertBanner'
 import TelemetryPanel    from '@/views/dashboard/TelemetryPanel'
+import AlarmPanel        from '@/views/dashboard/AlarmPanel'
 
 export default function Dashboard() {
   const {
@@ -22,6 +23,8 @@ export default function Dashboard() {
     geofenceBoundary,
     boundaryWarning,
     error,
+    alarmState,
+    sendReset,
   } = useDevice()
 
   const connected          = connectionStatus === 'connected'
@@ -37,6 +40,9 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <ConnectionBanner connectionStatus={connectionStatus} isDemoMode={isDemoMode} />
       </div>
+
+      {/* Signal alarm panel — driven by orbitcare/signal MQTT events */}
+      <AlarmPanel alarmState={alarmState} onReset={sendReset} />
 
       {/* Device + boundary status */}
       <DeviceStatusCard
