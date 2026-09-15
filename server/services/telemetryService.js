@@ -132,11 +132,11 @@ function publishSignalCommand(command, deviceId) {
     command,
   });
 
-  client.publish('orbitcare/signal', payload, { qos: 1 }, (err) => {
+  client.publish('orbitcare/signal_ch_2', payload, { qos: 1 }, (err) => {
     if (err) {
       console.error(`[telemetryService] Failed to publish signal ${command}:`, err);
     } else {
-      console.log(`[telemetryService] Published orbitcare/signal: ${payload}`);
+      console.log(`[telemetryService] Published orbitcare/signal_ch_2: ${payload}`);
     }
   });
 }
@@ -341,7 +341,7 @@ function handleMqttMessage(topic, data) {
     return;
   }
 
-  if (topic === 'orbitcare/signal') {
+  if (topic === 'orbitcare/signal_ch_1') {
     processSignalMessage(data).catch((err) =>
       console.error('[telemetryService] Unhandled error in processSignalMessage:', err),
     );

@@ -14,7 +14,7 @@ const mqtt = require('mqtt');
 /** @type {import('mqtt').MqttClient | null} */
 let client = null;
 
-const TOPICS = ['orbitcare/location', 'orbitcare/boundary', 'orbitcare/signal'];
+const TOPICS = ['orbitcare/location', 'orbitcare/boundary', 'orbitcare/signal_ch_1'];
 
 /**
  * Connects to the MQTT broker and wires message handling.
