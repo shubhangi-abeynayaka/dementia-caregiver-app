@@ -320,7 +320,14 @@ export function useDeviceController() {
   const sendReset = useCallback(async (deviceId = null) => {
     // Guard: if a DOM event leaks in as the first arg, treat it as null
     const safeDeviceId = typeof deviceId === 'string' ? deviceId : null
+
+    // Immediately clear all local alarm/telemetry state so every UI element
+    // (AlarmPanel, AlertBanner, StatusCard) resets without waiting for the
+    // next telemetry packet from the device.
+    isSosLatched.current = false
     setAlarmState('idle')
+    setTelemetry((t) => ({ ...t, status: 'Safe' }))
+
     try {
       const res = await apiService.request('/api/signal/reset', {
         method: 'POST',
