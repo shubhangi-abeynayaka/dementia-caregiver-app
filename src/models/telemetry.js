@@ -23,10 +23,13 @@ export const HARDWARE_WAITING_TELEMETRY = {
  * @returns {'SOS' | 'ALERT' | 'Safe'}
  */
 export function normalizeTelemetryStatus(status) {
-  const s = String(status ?? '').toUpperCase()
-  if (s.includes('SOS') || s.includes('EMERGENCY')) return 'SOS'
-  if (s.includes('ALERT')) return 'ALERT'
-  return 'Safe'
+  const s = String(status ?? '').toUpperCase().trim()
+  if (s === 'SOS'           || s.includes('EMERGENCY')) return 'SOS'
+  if (s === 'ALERT_OUTSIDE' || s === 'ALERT')           return 'ALERT'
+  if (s === 'SAFE')                                      return 'Safe'
+  // Unknown / intermediate statuses pass through unchanged so the UI
+  // can display them (e.g. "Waiting for GPS Fix...") without triggering alarms.
+  return status ?? 'Safe'
 }
 
 /**

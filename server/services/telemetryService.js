@@ -1,6 +1,6 @@
 'use strict';
 
-const { isValidPolygon, haversineDistanceInMeters } = require('../utils/geo');
+const { haversineDistanceInMeters } = require('../utils/geo');
 const geofenceService = require('./geofenceService');
 const telemetryRepository = require('../repositories/telemetryRepository');
 const incidentRepository = require('../repositories/incidentRepository');
@@ -186,8 +186,10 @@ async function processLocationMessage(data) {
     lat !== 0 &&
     lng !== 0;
 
-  const breached = hasCoordinates && geofenceService.checkBreach(lat, lng, data.device_id ?? null);
-  const status = breached ? 'ALERT' : (statusRaw ?? null);
+  // Trust the status reported by the Tx device entirely.
+  // Do NOT calculate breaches here — alarms fire only when the device sends
+  // ALERT_OUTSIDE (or SOS) on the MQTT topic, never from server-side geometry.
+  const status = statusRaw ?? null;
 
   // Build enriched payload — keep lat/lng at full double precision.
   const enrichedData = {
@@ -199,10 +201,10 @@ async function processLocationMessage(data) {
 
   const normalisedStatus = String(status ?? '').toUpperCase();
   const statusChanged = normalisedStatus !== lastTelemetryStatus;
-  const isIncidentStatus = ['ALERT', 'SOS'].includes(normalisedStatus);
-  const enteredIncidentStatus = breached || (statusChanged && isIncidentStatus);
+  const isIncidentStatus = normalisedStatus === 'ALERT_OUTSIDE' || normalisedStatus === 'SOS';
+  const enteredIncidentStatus = statusChanged && isIncidentStatus;
 
-  // ── Incident log ───────────────────────────────────────────────────────────
+  // ── Incident log ─────────────────────────────────────────────────────
   if (enteredIncidentStatus) {
     incidentRepository
       .insertIncident(
@@ -242,7 +244,7 @@ async function processLocationMessage(data) {
 
   lastTelemetryStatus = normalisedStatus;
 
-  // ── Broadcast ──────────────────────────────────────────────────────────────
+  // ── Broadcast ─────────────────────────────────────────────────────────────
   socketConfig.broadcast('telemetry', enrichedData);
 }
 
