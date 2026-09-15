@@ -12,7 +12,21 @@ export const ConnectionStatus = Object.freeze({
   SEARCHING:    'searching',
 })
 
-const CONFIGURED_BACKEND_URL = String(import.meta.env.VITE_BACKEND_URL || '')
+/** localStorage key for the user-configured backend URL. */
+export const BACKEND_URL_STORAGE_KEY = 'orbitcare_backend_url'
+
+/** Read the user-configured backend URL from localStorage (or fall back to env/defaults). */
+export function getStoredBackendUrl() {
+  try {
+    return localStorage.getItem(BACKEND_URL_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+const CONFIGURED_BACKEND_URL = String(
+  getStoredBackendUrl() || import.meta.env.VITE_BACKEND_URL || ''
+)
   .trim()
   .replace(/\/$/, '')
 

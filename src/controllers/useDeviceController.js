@@ -21,8 +21,8 @@ import {
   extractBoundaryPoints,
   isBoundarySnapshot,
 } from '@/models/geofence'
-import { GEOFENCE_DEVICE_ID } from '@/models/device'
-import { apiService } from '@/services/apiService'
+import { GEOFENCE_DEVICE_ID, getStoredBackendUrl } from '@/models/device'
+import { apiService, updateBackendUrl as persistBackendUrl } from '@/services/apiService'
 import { createSocketService } from '@/services/socketService'
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
@@ -92,6 +92,9 @@ export function useDeviceController() {
     } catch {
       return import.meta.env.VITE_MQTT_WS_URL || 'mqtt://broker.hivemq.com:1883'
     }
+  })
+  const [backendUrl, setBackendUrl] = useState(() => {
+    return getStoredBackendUrl() || import.meta.env.VITE_BACKEND_URL || ''
   })
   const [telemetry, setTelemetry] = useState(HARDWARE_WAITING_TELEMETRY)
   const [boundaryDeviceId, setBoundaryDeviceId] = useState(null)
@@ -368,7 +371,7 @@ export function useDeviceController() {
     svc.connect()
 
     return () => svc.dispose()
-  }, [isDemoMode])
+  }, [isDemoMode, backendUrl])
 
   // ── Demo mode effects ──────────────────────────────────────────────────────
 
@@ -547,6 +550,13 @@ export function useDeviceController() {
     try { localStorage.setItem('orbitcare_mqtt_broker_url', next) } catch { /* noop */ }
   }, [])
 
+  const updateBackendUrl = useCallback((url) => {
+    const next = String(url || '').trim().replace(/\/$/, '')
+    if (!next) return
+    persistBackendUrl(next)   // updates localStorage + BACKEND_URL_CANDIDATES
+    setBackendUrl(next)       // triggers socket reconnect via useEffect dependency
+  }, [])
+
   const clearAlert = useCallback(() => {
     isSosLatched.current = false
     setTelemetry((t) => ({ ...t, status: 'Safe' }))
@@ -592,6 +602,8 @@ export function useDeviceController() {
       setAudibleAlarm,
       mqttBrokerUrl,
       updateMqttBrokerUrl,
+      backendUrl,
+      updateBackendUrl,
       demoMode: isDemoMode,
       telemetry,
       geofenceBoundary,
@@ -620,7 +632,7 @@ export function useDeviceController() {
     }),
     [
       connectionStatus, isDemoMode, pushNotifications, audibleAlarm,
-      mqttBrokerUrl, telemetry, geofenceBoundary, boundaryWarning,
+      mqttBrokerUrl, backendUrl, telemetry, geofenceBoundary, boundaryWarning,
       boundaryDeviceId, locationDeviceId, historyLogs, error,
       alarmState, connect, disconnect, toggleDemoMode, updateGeofence,
       handleHardwareBoundaryStream, clearAllHistory, deleteHistoryLog,

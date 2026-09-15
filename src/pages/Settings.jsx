@@ -18,6 +18,8 @@ export default function Settings() {
     toggleAudibleAlarm,
     mqttBrokerUrl,
     updateMqttBrokerUrl,
+    backendUrl,
+    updateBackendUrl,
     telemetryStatus,
     geofenceBoundary,
     applyGeofencePreset,
@@ -28,6 +30,7 @@ export default function Settings() {
   } = useSettingsController()
 
   const [brokerUrlDraft, setBrokerUrlDraft] = useState(mqttBrokerUrl)
+  const [backendUrlDraft, setBackendUrlDraft] = useState(backendUrl)
 
   return (
     <div className="space-y-5">
@@ -87,6 +90,34 @@ export default function Settings() {
           <Button
             type="button"
             onClick={() => updateMqttBrokerUrl(brokerUrlDraft)}
+            className="rounded-xl"
+          >
+            Apply
+          </Button>
+        </div>
+      </div>
+
+      {/* Backend server address */}
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-sm space-y-3">
+        <div>
+          <p className="font-semibold">Backend Server Address</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            IP and port of the backend server (REST&nbsp;&amp;&nbsp;Socket.IO).
+            Applying reconnects the device stream automatically.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            id="backend-url-input"
+            aria-label="Backend server address"
+            value={backendUrlDraft}
+            onChange={(e) => setBackendUrlDraft(e.target.value)}
+            placeholder="http://192.168.1.42:5000"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+          />
+          <Button
+            type="button"
+            onClick={() => updateBackendUrl(backendUrlDraft)}
             className="rounded-xl"
           >
             Apply

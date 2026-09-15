@@ -3,7 +3,7 @@
  * automatic fallback across multiple candidate URLs.
  */
 
-import { BACKEND_URL_CANDIDATES } from '@/models/device'
+import { BACKEND_URL_CANDIDATES, BACKEND_URL_STORAGE_KEY } from '@/models/device'
 
 /**
  * Creates an API service instance that retries requests across all candidate
@@ -51,3 +51,18 @@ export function createApiService() {
  * Import this directly rather than calling createApiService() each time.
  */
 export const apiService = createApiService()
+
+/**
+ * Update the backend URL used by the singleton API service at runtime.
+ * Persists the URL to localStorage so it survives page reloads.
+ * @param {string} url
+ */
+export function updateBackendUrl(url) {
+  const next = String(url || '').trim().replace(/\/$/, '')
+  if (!next) return
+  try { localStorage.setItem(BACKEND_URL_STORAGE_KEY, next) } catch { /* noop */ }
+  // Rebuild the candidates list at the module level so future socket
+  // reconnections also pick up the new URL (handled by the controller).
+  BACKEND_URL_CANDIDATES.length = 0
+  BACKEND_URL_CANDIDATES.push(next)
+}
