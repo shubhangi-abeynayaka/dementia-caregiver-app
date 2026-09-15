@@ -7,7 +7,7 @@ const router = Router();
 
 /**
  * POST /api/signal/reset
- * Publish a RESET command to orbitcare/signal MQTT topic.
+ * Publish a RESET command to orbitcare/signal_ch_2 (app → Rx).
  * The receiver reads it and mutes any active alarm (same as pressing the
  * physical BTN_RESET on the receiver hardware).
  */

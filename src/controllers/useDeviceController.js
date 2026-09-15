@@ -315,7 +315,7 @@ export function useDeviceController() {
 
   /**
    * Send a RESET command via the backend REST API, which publishes it to
-   * orbitcare/signal. Also immediately clears the local alarm state.
+   * orbitcare/signal_ch_2 (app → Rx). Also immediately clears the local alarm state.
    */
   const sendReset = useCallback(async (deviceId = null) => {
     setAlarmState('idle')
