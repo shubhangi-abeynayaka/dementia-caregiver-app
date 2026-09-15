@@ -318,12 +318,14 @@ export function useDeviceController() {
    * orbitcare/signal_ch_2 (app → Rx). Also immediately clears the local alarm state.
    */
   const sendReset = useCallback(async (deviceId = null) => {
+    // Guard: if a DOM event leaks in as the first arg, treat it as null
+    const safeDeviceId = typeof deviceId === 'string' ? deviceId : null
     setAlarmState('idle')
     try {
       const res = await apiService.request('/api/signal/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: deviceId }),
+        body: JSON.stringify({ device_id: safeDeviceId }),
       })
       if (!res.ok) console.error('[useDeviceController] sendReset failed:', res.status)
     } catch (err) {

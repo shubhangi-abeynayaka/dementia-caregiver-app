@@ -78,7 +78,7 @@ export default function AlarmPanel({ alarmState, onReset }) {
               {cfg.showReset && (
                 <Button
                   id="alarm-panel-reset-btn"
-                  onClick={onReset}
+                  onClick={() => onReset()}
                   variant="secondary"
                   className="mt-3 h-9 rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 border text-sm font-semibold backdrop-blur-sm gap-2"
                 >
