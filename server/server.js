@@ -21,6 +21,7 @@ const telemetryRepository = require('./repositories/telemetryRepository');
 const historyRoutes  = require('./routes/history');
 const incidentRoutes = require('./routes/incidents');
 const geofenceRoutes = require('./routes/geofence');
+const signalRoutes   = require('./routes/signal');
 
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express();
@@ -34,6 +35,7 @@ app.get('/api/health', (_req, res) =>
 app.use('/api/history',   historyRoutes);
 app.use('/api/incidents', incidentRoutes);
 app.use('/api/geofence',  geofenceRoutes);
+app.use('/api/signal',    signalRoutes);
 
 // ── HTTP + Socket.IO ──────────────────────────────────────────────────────────
 const httpServer = http.createServer(app);

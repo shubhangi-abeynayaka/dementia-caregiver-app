@@ -5,6 +5,7 @@ const geofenceService = require('./geofenceService');
 const telemetryRepository = require('../repositories/telemetryRepository');
 const incidentRepository = require('../repositories/incidentRepository');
 const socketConfig = require('../config/socket');
+const mqttConfig = require('../config/mqtt');
 
 // ── Throttle state ────────────────────────────────────────────────────────────
 
@@ -22,41 +23,57 @@ let lastTelemetryStatus = null;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Normalise a raw MQTT boundary payload into an array of [lat, lng] pairs.
- * Returns null if the payload cannot be interpreted as a valid boundary.
+ * Normalise a raw MQTT boundary payload (orbitcare/boundary) into an array of
+ * { id, latitude, longitude } objects that match the hardware packet structure.
+ *
+ * The receiver publishes:
+ *   { "device_id": "DEVICE-009", "points": [{ "id": 1, "latitude": 6.822..., "longitude": 79.966... }, ...] }
+ *
+ * Returns null if the payload has no usable points.
+ *
  * @param {unknown} data
- * @returns {[number, number][] | null}
+ * @returns {{ id: number, latitude: number, longitude: number }[] | null}
  */
 function normaliseBoundaryPayload(data) {
-  const rawPoints = Array.isArray(data)
-    ? data
-    : (data?.boundary ?? data?.points ?? null);
+  if (!data || typeof data !== 'object') return null;
 
+  // Primary path: receiver's structured format with id, latitude, longitude
+  if (Array.isArray(data.points)) {
+    const points = data.points
+      .map((p) => {
+        if (!p || typeof p !== 'object') return null;
+        const id  = typeof p.id === 'number' ? p.id : Number(p.id);
+        const lat = Number(p.lat ?? p.latitude);
+        const lng = Number(p.lng ?? p.longitude);
+        if (!Number.isFinite(id) || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        if (lat === 0 && lng === 0) return null;
+        return { id, latitude: lat, longitude: lng };
+      })
+      .filter(Boolean);
+    // Return null (not empty array) only when there are literally no valid points
+    // so callers can distinguish "no points received" from "reset (empty array)".
+    return points;
+  }
+
+  // Fallback: raw array of [lat, lng] or { lat, lng } — assign sequential IDs
+  const rawPoints = Array.isArray(data) ? data : (data.boundary ?? null);
   if (!Array.isArray(rawPoints)) return null;
 
-  const points = rawPoints
-    .map((point) => {
+  return rawPoints
+    .map((point, idx) => {
+      let lat, lng;
       if (Array.isArray(point)) {
-        return [Number(point[0]), Number(point[1])];
+        [lat, lng] = [Number(point[0]), Number(point[1])];
+      } else if (point && typeof point === 'object') {
+        lat = Number(point.lat ?? point.latitude);
+        lng = Number(point.lng ?? point.longitude);
+      } else {
+        return null;
       }
-      if (point && typeof point === 'object') {
-        return [
-          Number(point.lat ?? point.latitude),
-          Number(point.lng ?? point.longitude),
-        ];
-      }
-      return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+      return { id: idx + 1, latitude: lat, longitude: lng };
     })
-    .filter(
-      (p) =>
-        p &&
-        Number.isFinite(p[0]) &&
-        Number.isFinite(p[1]) &&
-        p[0] !== 0 &&
-        p[1] !== 0,
-    );
-
-  return isValidPolygon(points) ? points : null;
+    .filter(Boolean);
 }
 
 /**
@@ -93,28 +110,92 @@ function normaliseSignalPayload(data) {
   return null;
 }
 
+/**
+ * Publish a command to the orbitcare/signal MQTT topic.
+ * Used by the backend REST API to send false-alarm dismissal commands to the receiver.
+ *
+ * Payload format (same structure the receiver reads):
+ *   { "device_id": "DEVICE-009", "command": "RESET" }
+ *
+ * @param {string} command   'RESET' | 'ALARM_ON' | 'ALARM_OFF'
+ * @param {string | null} deviceId
+ */
+function publishSignalCommand(command, deviceId) {
+  const client = mqttConfig.getClient();
+  if (!client || !client.connected) {
+    console.warn('[telemetryService] MQTT client not connected — cannot publish signal command.');
+    return;
+  }
+
+  const payload = JSON.stringify({
+    device_id: deviceId ?? 'DEVICE-009',
+    command,
+  });
+
+  client.publish('orbitcare/signal', payload, { qos: 1 }, (err) => {
+    if (err) {
+      console.error(`[telemetryService] Failed to publish signal ${command}:`, err);
+    } else {
+      console.log(`[telemetryService] Published orbitcare/signal: ${payload}`);
+    }
+  });
+}
+
 // ── Public handlers ───────────────────────────────────────────────────────────
 
 /**
  * Process an `orbitcare/location` MQTT message.
- * Determines status, checks geofence breach, throttles DB writes,
- * and broadcasts the enriched payload via Socket.IO.
+ *
+ * The receiver publishes:
+ *   {
+ *     "device_id": "DEVICE-009",
+ *     "location": [{ "Status": "SAFE", "latitude": 6.823..., "longitude": 79.966... }]
+ *   }
+ *
+ * GPS coordinates are transmitted as 12-decimal-place strings by the transmitter
+ * and parsed as JSON doubles by the receiver — full IEEE 754 precision is preserved
+ * throughout. We must NOT truncate them at any stage in the backend.
  *
  * @param {object} data  Parsed MQTT payload
  */
 async function processLocationMessage(data) {
   if (!data || typeof data !== 'object') return;
 
-  const lat = Number(data.lat ?? data.latitude);
-  const lng = Number(data.lng ?? data.longitude);
+  // ── Extract coordinates from receiver's location array format ──────────────
+  // Primary: data.location[0].latitude / longitude  (Rx firmware format)
+  // Fallback: data.lat / data.lng  (flat format / legacy)
+  let lat, lng, statusRaw;
+
+  const locEntry = Array.isArray(data.location) && data.location.length > 0
+    ? data.location[0]
+    : null;
+
+  if (locEntry) {
+    lat       = Number(locEntry.latitude  ?? locEntry.lat);
+    lng       = Number(locEntry.longitude ?? locEntry.lng);
+    statusRaw = locEntry.Status ?? locEntry.status ?? data.status ?? null;
+  } else {
+    lat       = Number(data.lat ?? data.latitude);
+    lng       = Number(data.lng ?? data.longitude);
+    statusRaw = data.status ?? null;
+  }
+
   const hasCoordinates =
     Number.isFinite(lat) &&
     Number.isFinite(lng) &&
     lat !== 0 &&
     lng !== 0;
+
   const breached = hasCoordinates && geofenceService.checkBreach(lat, lng, data.device_id ?? null);
-  const status = breached ? 'ALERT' : (data.status ?? null);
-  const enrichedData = { ...data, status };
+  const status = breached ? 'ALERT' : (statusRaw ?? null);
+
+  // Build enriched payload — keep lat/lng at full double precision.
+  const enrichedData = {
+    ...data,
+    lat: hasCoordinates ? lat : undefined,
+    lng: hasCoordinates ? lng : undefined,
+    status,
+  };
 
   const normalisedStatus = String(status ?? '').toUpperCase();
   const statusChanged = normalisedStatus !== lastTelemetryStatus;
@@ -167,18 +248,34 @@ async function processLocationMessage(data) {
 
 /**
  * Process an `orbitcare/boundary` MQTT message.
- * Updates the in-memory geofence (does NOT persist to DB — hardware defines it).
+ *
+ * The receiver publishes boundary points in batches of up to 3 per message:
+ *   { "device_id": "DEVICE-009", "points": [{ "id": 1, "latitude": ..., "longitude": ... }, ...] }
+ *
+ * Each point is persisted to the `boundary_points` table keyed by (device_id, point_id).
+ * After every batch the full polygon is rebuilt from all stored points and broadcast
+ * via Socket.IO so the frontend reflects the accumulating boundary.
  *
  * @param {unknown} data
  */
-function processBoundaryMessage(data) {
-  const polygon = normaliseBoundaryPayload(data);
-  if (!polygon) return;
+async function processBoundaryMessage(data) {
+  const points = normaliseBoundaryPayload(data);
+  // null = completely unparseable; [] = explicit reset (empty boundary packet)
+  if (points === null) return;
 
   const deviceId = (data && typeof data === 'object' ? data.device_id : null) ?? null;
-  geofenceService.setActiveGeofence(deviceId, polygon);
 
-  const enrichedData = typeof data === 'object' ? { ...data, boundary: polygon } : { boundary: polygon };
+  // Delegate to geofenceService which handles the DB upsert + polygon rebuild.
+  await geofenceService.processBoundaryPacket(deviceId, points);
+
+  // Broadcast updated boundary — include structured points for the frontend.
+  const updatedPoints = await geofenceService.getAllBoundaryPoints(deviceId);
+  const enrichedData = {
+    type: 'BOUNDARY',
+    device_id: deviceId,
+    points: updatedPoints,
+    boundary: updatedPoints.map((p) => [p.latitude, p.longitude]),
+  };
   socketConfig.broadcast('telemetry', enrichedData);
 }
 
@@ -238,7 +335,9 @@ function handleMqttMessage(topic, data) {
   }
 
   if (topic === 'orbitcare/boundary') {
-    processBoundaryMessage(data);
+    processBoundaryMessage(data).catch((err) =>
+      console.error('[telemetryService] Unhandled error in processBoundaryMessage:', err),
+    );
     return;
   }
 
@@ -258,4 +357,5 @@ module.exports = {
   processBoundaryMessage,
   processSignalMessage,
   normaliseSignalPayload,
+  publishSignalCommand,
 };

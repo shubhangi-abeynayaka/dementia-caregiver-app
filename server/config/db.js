@@ -46,6 +46,28 @@ db.serialize(() => {
     if (err) console.error('[db] Failed to create geofence_zones:', err);
   });
 
+  // Individual boundary points keyed by (device_id, point_id).
+  // point_id matches the 1-based id assigned by the transmitter hardware.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS boundary_points (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id  TEXT,
+      point_id   INTEGER,
+      latitude   REAL,
+      longitude  REAL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err) console.error('[db] Failed to create boundary_points:', err);
+  });
+
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_boundary_points_device_point
+    ON boundary_points (device_id, point_id)
+  `, (err) => {
+    if (err) console.error('[db] Failed to create boundary_points index:', err);
+  });
+
   db.run(`
     CREATE TABLE IF NOT EXISTS app_settings (
       key   TEXT PRIMARY KEY,

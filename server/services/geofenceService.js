@@ -93,6 +93,93 @@ function setActiveGeofence(deviceId, polygon) {
 }
 
 /**
+ * Process a batch of boundary points received from the receiver's MQTT message.
+ *
+ * The transmitter sends up to 3 points per LoRa packet (10 points = up to 4 packets).
+ * Each point has a 1-based `id` assigned by the transmitter.
+ * This function upserts each point into the DB by (device_id, point_id), then
+ * rebuilds the full in-memory polygon from ALL stored points for this device.
+ *
+ * @param {string | null} deviceId
+ * @param {Array<{ id: number, latitude: number, longitude: number }>} points
+ * @returns {Promise<void>}
+ */
+async function processBoundaryPacket(deviceId, points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    // Empty boundary packet = RESET: clear all stored points for this device.
+    console.log(`[geofenceService] Empty boundary packet from ${deviceId} — clearing points.`);
+    await geofenceRepository.clearBoundaryPoints(deviceId);
+    activeGeofence = null;
+    return;
+  }
+
+  // Upsert each point in this batch.
+  const upserts = points
+    .filter(
+      (p) =>
+        p &&
+        typeof p.id === 'number' &&
+        Number.isFinite(p.latitude) &&
+        Number.isFinite(p.longitude) &&
+        p.latitude !== 0 &&
+        p.longitude !== 0,
+    )
+    .map((p) =>
+      geofenceRepository
+        .upsertBoundaryPoint(deviceId, p.id, p.latitude, p.longitude)
+        .catch((err) =>
+          console.error(`[geofenceService] Failed to upsert point ${p.id}:`, err),
+        ),
+    );
+
+  await Promise.all(upserts);
+
+  // Rebuild the in-memory polygon from ALL stored points for this device.
+  const allRows = await geofenceRepository.getBoundaryPoints(deviceId);
+  const polygon = allRows
+    .map((r) => [r.latitude, r.longitude])
+    .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0);
+
+  if (isValidPolygon(polygon)) {
+    activeGeofence = { device_id: deviceId, polygon };
+    // Persist the full polygon to geofence_zones for quick startup recovery.
+    await geofenceRepository.upsertGeofence(deviceId, JSON.stringify(polygon));
+    console.log(
+      `[geofenceService] Boundary updated for ${deviceId}: ${polygon.length} points.`,
+    );
+  }
+}
+
+/**
+ * Return all stored boundary points for a device from the DB.
+ * Points are returned in point_id order (1-based), preserving the
+ * physical order the transmitter placed them.
+ *
+ * @param {string | null} deviceId
+ * @returns {Promise<Array<{ id: number, latitude: number, longitude: number }>>}
+ */
+async function getAllBoundaryPoints(deviceId) {
+  const rows = await geofenceRepository.getBoundaryPoints(deviceId);
+  return rows.map((r) => ({
+    id: r.point_id,
+    latitude: r.latitude,
+    longitude: r.longitude,
+  }));
+}
+
+/**
+ * Clear all stored boundary points for a device and reset the in-memory geofence.
+ * @param {string | null} deviceId
+ * @returns {Promise<void>}
+ */
+async function resetBoundaryPoints(deviceId) {
+  await geofenceRepository.clearBoundaryPoints(deviceId);
+  if (activeGeofence && activeGeofence.device_id === deviceId) {
+    activeGeofence = null;
+  }
+}
+
+/**
  * Check whether a given coordinate is outside the active geofence.
  * Returns false if there is no active geofence or coordinates are invalid.
  * @param {number} lat
@@ -115,5 +202,8 @@ module.exports = {
   getActiveGeofence,
   updateGeofence,
   setActiveGeofence,
+  processBoundaryPacket,
+  getAllBoundaryPoints,
+  resetBoundaryPoints,
   checkBreach,
 };

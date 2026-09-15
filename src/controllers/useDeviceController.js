@@ -224,7 +224,8 @@ export function useDeviceController() {
     // ── Location handling ────────────────────────────────────────────────────
     const locPoint = Array.isArray(next.location)
       ? next.location
-          .filter((p) => p?.latitude !== '' && p?.longitude !== '')
+          .filter((p) => p?.latitude != null && p?.longitude != null &&
+                         Number(p.latitude) !== 0 && Number(p.longitude) !== 0)
           .sort((a, b) => Number(b.id) - Number(a.id))[0]
       : null
 
@@ -233,7 +234,7 @@ export function useDeviceController() {
     const lng = Number(next.lng ?? next.coordinates?.[1] ?? locPoint?.longitude)
     const coordinates =
       Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
-        ? [parseFloat(lat), parseFloat(lng)]
+        ? [lat, lng]
         : [curLat, curLng]
     const hasCoords =
       Number.isFinite(coordinates[0]) &&
@@ -496,6 +497,30 @@ export function useDeviceController() {
         } catch { /* noop */ }
       })
       .catch((err) => { if (err.name !== 'AbortError') console.error('[useDeviceController] Geofence load failed:', err) })
+    return () => controller.abort()
+  }, [])
+
+  // Load persisted boundary points from DB (ordered by hardware point_id).
+  // This restores the full boundary even when the Tx hasn't re-transmitted it.
+  useEffect(() => {
+    const controller = new AbortController()
+    apiService
+      .request('/api/geofence/points', { signal: controller.signal })
+      .then((res) => { if (!res.ok) throw new Error(`Geofence points fetch: ${res.status}`); return res.json() })
+      .then((payload) => {
+        if (!Array.isArray(payload?.points) || payload.points.length === 0) return
+        // Convert { id, latitude, longitude } → [lat, lng] pairs
+        const pts = payload.points
+          .map((p) => normalizeBoundaryPoint([p.latitude, p.longitude]))
+          .filter(Boolean)
+        if (pts.length > 0) {
+          setGeofenceBoundary(pts)
+          setBoundaryWarning(pts.length < 3)
+          if (payload.device_id) setBoundaryDeviceId(String(payload.device_id))
+          console.log(`📍 Loaded ${pts.length} boundary points from DB.`)
+        }
+      })
+      .catch((err) => { if (err.name !== 'AbortError') console.error('[useDeviceController] Geofence points load failed:', err) })
     return () => controller.abort()
   }, [])
 

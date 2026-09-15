@@ -12,5 +12,6 @@ export function formatCoords(lat, lng) {
   if (lat == null || lng == null || Number.isNaN(lat) || Number.isNaN(lng)) {
     return '—'
   }
-  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  // 6 decimal places = ~0.1 m resolution, sufficient for geofence monitoring
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`
 }
