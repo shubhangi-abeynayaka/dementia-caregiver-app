@@ -20,16 +20,24 @@ const mapOptions = (interactive) => ({
   gestureHandling: interactive ? "auto" : "none",
 });
 
-const patientIcon = (isBreached) => ({
-  url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="8" fill="${isBreached ? "#DC2626" : "#2563EB"}" />
-      <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
-    </svg>
-  `)}`,
-  scaledSize: new window.google.maps.Size(24, 24),
-  anchor: new window.google.maps.Point(12, 12),
-});
+const patientIcon = (status) => {
+  let color = "#2563EB"; // Blue (Safe)
+  if (status === "ALERT" || status === "SOS") {
+    color = "#DC2626"; // Red (Outside / SOS)
+  } else if (status === "NEAR_BOUNDARY" || status === "OUTSIDE_ACKNOWLEDGED") {
+    color = "#F59E0B"; // Amber (Near boundary / Silenced)
+  }
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8" fill="${color}" />
+        <circle cx="12" cy="12" r="3" fill="#FFFFFF" />
+      </svg>
+    `)}`,
+    scaledSize: new window.google.maps.Size(24, 24),
+    anchor: new window.google.maps.Point(12, 12),
+  };
+};
 
 function toLatLng(point) {
   if (!Array.isArray(point) || point.length < 2) return null;
@@ -154,8 +162,16 @@ export default function MapWidget({
         {position && (
           <Marker
             position={position}
-            icon={patientIcon(isBreached)}
-            title={isBreached ? "Patient is outside the safe zone" : "Patient is safe"}
+            icon={patientIcon(telemetry?.status)}
+            title={
+              isBreached
+                ? "Patient is outside the safe zone"
+                : telemetry?.status === "NEAR_BOUNDARY"
+                  ? "Patient is near the boundary line (within 4m)"
+                  : telemetry?.status === "OUTSIDE_ACKNOWLEDGED"
+                    ? "Outside alert silenced — caregiver assisting"
+                    : "Patient is safe"
+            }
           />
         )}
       </GoogleMap>

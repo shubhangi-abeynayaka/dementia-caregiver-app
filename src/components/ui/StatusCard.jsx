@@ -8,6 +8,18 @@ const MAP = {
     sub: "Patient is inside the safe zone",
     Icon: ShieldCheck,
   },
+  NEAR_BOUNDARY: {
+    color: "38 92% 50%",
+    label: "Near Boundary",
+    sub: "Patient is close to boundary line (within 4m)",
+    Icon: AlertTriangle,
+  },
+  OUTSIDE_ACKNOWLEDGED: {
+    color: "25 95% 53%",
+    label: "Outside (Silenced)",
+    sub: "Caregiver attending — awaiting return to safe zone",
+    Icon: AlertTriangle,
+  },
   ALERT: {
     color: "0 72.2% 50.6%",
     label: "Outside Alert",

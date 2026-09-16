@@ -41,6 +41,36 @@ export default function AlertBanner({ status, coordinatesLabel }) {
             </div>
           </div>
         </motion.div>
+      ) : status === 'NEAR_BOUNDARY' ? (
+        <motion.div
+          key="near_boundary"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="rounded-2xl bg-amber-500 p-4 text-white shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-lg">⚠️ Patient is near the boundary line (within 4m)</p>
+              <p className="text-white/90 text-sm">{coordinatesLabel}</p>
+            </div>
+          </div>
+        </motion.div>
+      ) : status === 'OUTSIDE_ACKNOWLEDGED' ? (
+        <motion.div
+          key="outside_ack"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="rounded-2xl bg-amber-600 p-4 text-white shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-lg">Outside alert silenced — caregiver assisting</p>
+              <p className="text-white/90 text-sm">{coordinatesLabel}</p>
+            </div>
+          </div>
+        </motion.div>
       ) : status === 'Safe' ? (
         <motion.div
           key="safe"

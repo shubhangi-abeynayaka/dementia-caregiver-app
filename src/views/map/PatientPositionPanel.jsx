@@ -38,7 +38,7 @@ export default function PatientPositionPanel({
       </div>
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">Status</span>
-        <span className="text-sm font-medium capitalize">{status}</span>
+        <span className="text-sm font-medium capitalize">{status ? String(status).replace(/_/g, ' ').toLowerCase() : 'Safe'}</span>
       </div>
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">Signal</span>
